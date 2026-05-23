@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import logging
 import sys
@@ -43,7 +41,7 @@ nonpyomo_leaf_types = set()
 #: like numpy, which may be registered by users.
 #:
 #: Note that :data:`native_numeric_types` does NOT include
-#: :py:`complex`, as that is not a valid constant in Pyomo numeric
+#: :py:class:`complex`, as that is not a valid constant in Pyomo numeric
 #: expressions.
 native_numeric_types = {int, float}
 native_integer_types = {int}
@@ -98,8 +96,8 @@ def RegisterNumericType(new_type: type):
 
     Parameters
     ----------
-    new_type: type
-        The new numeric type (e.g, numpy.float64)
+    new_type : type
+        The new numeric type (e.g, `numpy.float64`)
 
     """
     native_numeric_types.add(new_type)
@@ -122,8 +120,8 @@ def RegisterIntegerType(new_type: type):
 
     Parameters
     ----------
-    new_type: type
-        The new integer type (e.g, numpy.int64)
+    new_type : type
+        The new integer type (e.g, `numpy.int64`)
 
     """
     native_numeric_types.add(new_type)
@@ -149,8 +147,8 @@ def RegisterBooleanType(new_type: type):
 
     Parameters
     ----------
-    new_type: type
-        The new logical type (e.g, numpy.bool_)
+    new_type : type
+        The new logical type (e.g, `numpy.bool_`)
 
     """
     _native_boolean_types.add(new_type)
@@ -171,8 +169,8 @@ def RegisterComplexType(new_type: type):
 
     Parameters
     ----------
-    new_type: type
-        The new complex type (e.g, numpy.complex128)
+    new_type : type
+        The new complex type (e.g, `numpy.complex128`)
 
     """
     native_types.add(new_type)
@@ -192,8 +190,8 @@ def RegisterLogicalType(new_type: type):
 
     Parameters
     ----------
-    new_type: type
-        The new logical type (e.g, numpy.bool_)
+    new_type : type
+        The new logical type (e.g, `numpy.bool_`)
 
     """
     _native_boolean_types.add(new_type)
@@ -318,13 +316,11 @@ def check_if_numeric_type(obj):
     # Generate a warning, since Pyomo's management of third-party
     # numeric types is more robust when registering explicitly.
     #
-    logger.warning(
-        f"""Dynamically registering the following numeric type:
+    logger.warning(f"""Dynamically registering the following numeric type:
     {obj_class.__module__}.{obj_class.__name__}
 Dynamic registration is supported for convenience, but there are known
 limitations to this approach.  We recommend explicitly registering
-numeric types using RegisterNumericType() or RegisterIntegerType()."""
-    )
+numeric types using RegisterNumericType() or RegisterIntegerType().""")
     return True
 
 
@@ -382,7 +378,8 @@ def value(obj, exception=True):
             tmp = obj(exception=True)
             if tmp is None:
                 raise ValueError(
-                    "No value for uninitialized NumericValue object %s" % (obj.name,)
+                    "No value for uninitialized %s object %s"
+                    % (type(obj).__name__, obj.name)
                 )
             return tmp
         except TemplateExpressionError:

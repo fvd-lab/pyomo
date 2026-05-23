@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import sys
 import logging
@@ -26,10 +24,15 @@ from pyomo.common.numeric_types import (
 )
 
 import pyomo.core.expr as EXPR
+from pyomo.core.expr.expr_common import _type_check_exception_arg
 import pyomo.core.expr.numeric_expr as numeric_expr
 from pyomo.core.base.component import ComponentData, ModelComponentFactory
 from pyomo.core.base.global_set import UnindexedComponent_index
-from pyomo.core.base.indexed_component import IndexedComponent, UnindexedComponent_set
+from pyomo.core.base.indexed_component import (
+    IndexedComponent,
+    UnindexedComponent_set,
+    IndexedComponent_NDArrayMixin,
+)
 from pyomo.core.expr.numvalue import as_numeric
 from pyomo.core.base.initializer import Initializer
 
@@ -39,12 +42,8 @@ logger = logging.getLogger('pyomo.core')
 class NamedExpressionData(numeric_expr.NumericValue):
     """An object that defines a generic "named expression".
 
-    This is the base class for both :py:class:`ExpressionData` and
-    :py:class:`ObjectiveData`.
-
-    Public Class Attributes
-        expr       The expression owned by this data.
-
+    This is the base class for both :class:`ExpressionData` and
+    :class:`ObjectiveData`.
     """
 
     # Note: derived classes are expected to declare the _args_ slot
@@ -54,9 +53,10 @@ class NamedExpressionData(numeric_expr.NumericValue):
     PRECEDENCE = 0
     ASSOCIATIVITY = EXPR.OperatorAssociativity.NON_ASSOCIATIVE
 
-    def __call__(self, exception=True):
+    def __call__(self, exception=NOTSET):
         """Compute the value of this expression."""
-        (arg,) = self._args_
+        exception = _type_check_exception_arg(self, exception)
+        (arg,) = self.args
         if arg.__class__ in native_types:
             # Note: native_types includes NoneType
             return arg
@@ -87,7 +87,7 @@ class NamedExpressionData(numeric_expr.NumericValue):
     def arg(self, index):
         if index != 0:
             raise KeyError("Invalid index for expression argument: %d" % index)
-        return self._args_[0]
+        return self.args[0]
 
     @property
     def args(self):
@@ -99,7 +99,7 @@ class NamedExpressionData(numeric_expr.NumericValue):
     def _to_string(self, values, verbose, smap):
         if verbose:
             return "%s{%s}" % (str(self), values[0])
-        if self._args_[0] is None:
+        if self.args[0] is None:
             return "%s{None}" % str(self)
         return values[0]
 
@@ -114,7 +114,7 @@ class NamedExpressionData(numeric_expr.NumericValue):
 
     def polynomial_degree(self):
         """A tuple of subexpressions involved in this expressions operation."""
-        if self._args_[0] is None:
+        if self.args[0] is None:
             return None
         return self.expr.polynomial_degree()
 
@@ -131,7 +131,7 @@ class NamedExpressionData(numeric_expr.NumericValue):
 
     @property
     def expr(self):
-        (arg,) = self._args_
+        (arg,) = self.args
         if arg is None:
             return None
         return as_numeric(arg)
@@ -167,7 +167,7 @@ class NamedExpressionData(numeric_expr.NumericValue):
 
     def is_fixed(self):
         """A boolean indicating whether this expression is fixed."""
-        (e,) = self._args_
+        (e,) = self.args
         return e.__class__ in native_types or e.is_fixed()
 
     # Override the in-place operators here so that we can redirect the
@@ -175,26 +175,26 @@ class NamedExpressionData(numeric_expr.NumericValue):
     # this Expression object (which would map to "other")
 
     def __iadd__(self, other):
-        (e,) = self._args_
+        (e,) = self.args
         return numeric_expr._add_dispatcher[e.__class__, other.__class__](e, other)
 
     # Note: the default implementation of __isub__ leverages __iadd__
     # and doesn't need to be reimplemented here
 
     def __imul__(self, other):
-        (e,) = self._args_
+        (e,) = self.args
         return numeric_expr._mul_dispatcher[e.__class__, other.__class__](e, other)
 
     def __idiv__(self, other):
-        (e,) = self._args_
+        (e,) = self.args
         return numeric_expr._div_dispatcher[e.__class__, other.__class__](e, other)
 
     def __itruediv__(self, other):
-        (e,) = self._args_
+        (e,) = self.args
         return numeric_expr._div_dispatcher[e.__class__, other.__class__](e, other)
 
     def __ipow__(self, other):
-        (e,) = self._args_
+        (e,) = self.args
         return numeric_expr._pow_dispatcher[e.__class__, other.__class__](e, other)
 
 
@@ -209,18 +209,16 @@ class _GeneralExpressionDataImpl(metaclass=RenamedClass):
 
 
 class ExpressionData(NamedExpressionData, ComponentData):
-    """
-    An object that defines an expression that is never cloned
+    """An object that defines an expression that is never cloned
 
-    Constructor Arguments
-        expr        The Pyomo expression stored in this expression.
-        component   The Expression object that owns this data.
+    Parameters
+    ----------
+    expr : NumericValue
+        The Pyomo expression stored in this expression.
 
-    Public Class Attributes
-        expr        The expression owned by this data.
+    component : Expression
+        The Expression object that owns this data.
 
-    Private class attributes:
-        _component  The expression component.
     """
 
     __slots__ = ('_args_',)
@@ -239,17 +237,29 @@ class _GeneralExpressionData(metaclass=RenamedClass):
 @ModelComponentFactory.register(
     "Named expressions that can be used in other expressions."
 )
-class Expression(IndexedComponent):
-    """
-    A shared expression container, which may be defined over a index.
+class Expression(IndexedComponent, IndexedComponent_NDArrayMixin):
+    """A shared expression container, which may be defined over an index.
 
-    Constructor Arguments:
-        initialize  A Pyomo expression or dictionary of expressions
-                        used to initialize this object.
-        expr        A synonym for initialize.
-        rule        A rule function used to initialize this object.
-        name        Name for this component.
-        doc         Text describing this component.
+    Parameters
+    ----------
+    rule : ~.Initializer
+
+        The source to use to initialize the expression(s) in this
+        component.  See :func:`.Initializer` for accepted argument types.
+
+    initialize :
+        A synonym for `rule`
+
+    expr :
+        A synonym for `rule`
+
+    name : str
+        Name of this component; will be overridden if this is assigned
+        to a Block.
+
+    doc : str
+        Text describing this component.
+
     """
 
     _ComponentDataClass = ExpressionData
@@ -291,7 +301,7 @@ class Expression(IndexedComponent):
                 ('Size', len(self)),
                 ('Index', None if (not self.is_indexed()) else self._index_set),
             ],
-            self.items(),
+            self.items,
             ("Expression",),
             lambda k, v: ["Undefined" if v.expr is None else v.expr],
         )
@@ -390,8 +400,9 @@ class ScalarExpression(ExpressionData, Expression):
     # construction
     #
 
-    def __call__(self, exception=True):
+    def __call__(self, exception=NOTSET):
         """Return expression on this expression."""
+        exception = _type_check_exception_arg(self, exception)
         if self._constructed:
             return super().__call__(exception)
         raise ValueError(

@@ -1,17 +1,20 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import abc
 import enum
+import os
+import re
+import weakref
+
 from typing import (
+    TYPE_CHECKING,
     Sequence,
     Dict,
     Optional,
@@ -21,6 +24,12 @@ from typing import (
     Tuple,
     MutableMapping,
 )
+
+from pyomo.common.config import ConfigDict, ConfigValue, NonNegativeFloat
+from pyomo.common.errors import ApplicationError
+from pyomo.common.enums import IntEnum, SolverAPIVersion
+from pyomo.common.factory import Factory
+from pyomo.common.timing import HierarchicalTimer
 from pyomo.core.base.constraint import ConstraintData, Constraint
 from pyomo.core.base.sos import SOSConstraintData, SOSConstraint
 from pyomo.core.base.var import VarData, Var
@@ -30,12 +39,7 @@ from pyomo.core.base.objective import ObjectiveData
 from pyomo.common.collections import ComponentMap
 from .utils.get_objective import get_objective
 from .utils.collect_vars_and_named_exprs import collect_vars_and_named_exprs
-from pyomo.common.timing import HierarchicalTimer
-from pyomo.common.config import ConfigDict, ConfigValue, NonNegativeFloat
-from pyomo.common.errors import ApplicationError
 from pyomo.opt.base import SolverFactory as LegacySolverFactory
-from pyomo.common.factory import Factory
-import os
 from pyomo.opt.results.results_ import SolverResults as LegacySolverResults
 from pyomo.opt.results.solution import (
     Solution as LegacySolution,
@@ -47,7 +51,6 @@ from pyomo.opt.results.solver import (
 )
 from pyomo.core.kernel.objective import minimize
 from pyomo.core.base import SymbolMap
-import weakref
 from .cmodel import cmodel, cmodel_available
 from pyomo.core.staleflag import StaleFlagManager
 from pyomo.core.expr.numvalue import NumericConstant
@@ -97,6 +100,9 @@ class TerminationCondition(enum.Enum):
 
 class SolverConfig(ConfigDict):
     """
+    Common configuration options for all APPSI solver interfaces
+
+
     Attributes
     ----------
     time_limit: float
@@ -132,12 +138,14 @@ class SolverConfig(ConfigDict):
         )
 
         self.declare('time_limit', ConfigValue(domain=NonNegativeFloat))
+        self.declare('warmstart', ConfigValue(domain=bool))
         self.declare('stream_solver', ConfigValue(domain=bool))
         self.declare('load_solution', ConfigValue(domain=bool))
         self.declare('symbolic_solver_labels', ConfigValue(domain=bool))
         self.declare('report_timing', ConfigValue(domain=bool))
 
         self.time_limit: Optional[float] = None
+        self.warmstart: bool = False
         self.stream_solver: bool = False
         self.load_solution: bool = True
         self.symbolic_solver_labels: bool = False
@@ -146,6 +154,8 @@ class SolverConfig(ConfigDict):
 
 class MIPSolverConfig(SolverConfig):
     """
+    Configuration options common to all MIP solvers
+
     Attributes
     ----------
     mip_gap: float
@@ -368,8 +378,10 @@ class SolutionLoader(SolutionLoaderBase):
         return rc
 
 
-class Results(object):
+class Results:
     """
+    Base class for all APPSI solver results
+
     Attributes
     ----------
     termination_condition: TerminationCondition
@@ -385,13 +397,15 @@ class Results(object):
         For solvers that do not provide an objective bound, this should be -inf
         (minimization) or inf (maximization)
 
+    Example
+    -------
     Here is an example workflow:
 
-        >>> import pyomo.environ as pe
+        >>> import pyomo.environ as pyo
         >>> from pyomo.contrib import appsi
-        >>> m = pe.ConcreteModel()
-        >>> m.x = pe.Var()
-        >>> m.obj = pe.Objective(expr=m.x**2)
+        >>> m = pyo.ConcreteModel()
+        >>> m.x = pyo.Var()
+        >>> m.obj = pyo.Objective(expr=m.x**2)
         >>> opt = appsi.solvers.Ipopt()
         >>> opt.config.load_solution = False
         >>> results = opt.solve(m) #doctest:+SKIP
@@ -427,6 +441,8 @@ class Results(object):
 
 class UpdateConfig(ConfigDict):
     """
+    Config options common to all persistent solvers
+
     Attributes
     ----------
     check_for_new_or_removed_constraints: bool
@@ -594,7 +610,7 @@ class UpdateConfig(ConfigDict):
 
 
 class Solver(abc.ABC):
-    class Availability(enum.IntEnum):
+    class Availability(IntEnum):
         NotFound = 0
         BadVersion = -1
         BadLicense = -2
@@ -618,6 +634,18 @@ class Solver(abc.ABC):
             # preserve the previous behavior
             return self.name
 
+    @classmethod
+    def api_version(self):
+        """
+        Return the public API supported by this interface.
+
+        Returns
+        -------
+        ~pyomo.common.enums.SolverAPIVersion
+            A solver API enum object
+        """
+        return SolverAPIVersion.APPSI
+
     @abc.abstractmethod
     def solve(self, model: BlockData, timer: HierarchicalTimer = None) -> Results:
         """
@@ -632,7 +660,7 @@ class Solver(abc.ABC):
 
         Returns
         -------
-        results: Results
+        results: ~pyomo.contrib.appsi.base.Results
             A results object
         """
         pass
@@ -659,7 +687,7 @@ class Solver(abc.ABC):
         available: Solver.Availability
             An enum that indicates "how available" the solver is.
             Note that the enum can be cast to bool, which will
-            be True if the solver is runable at all and False
+            be True if the solver is runnable at all and False
             otherwise.
         """
         pass
@@ -681,7 +709,7 @@ class Solver(abc.ABC):
 
         Returns
         -------
-        SolverConfig
+        ~pyomo.contrib.appsi.base.SolverConfig
             An object for configuring pyomo solve options such as the time limit.
             These options are mostly independent of the solver.
         """
@@ -1495,7 +1523,7 @@ legacy_solution_status_map = {
 }
 
 
-class LegacySolverInterface(object):
+class LegacySolverInterface:
     def solve(
         self,
         model: BlockData,
@@ -1510,6 +1538,7 @@ class LegacySolverInterface(object):
         options: Optional[Dict] = None,
         keepfiles: bool = False,
         symbolic_solver_labels: bool = False,
+        warmstart: bool = False,
     ):
         original_config = self.config
         self.config = self.config()
@@ -1517,6 +1546,7 @@ class LegacySolverInterface(object):
         self.config.load_solution = load_solutions
         self.config.symbolic_solver_labels = symbolic_solver_labels
         self.config.time_limit = timelimit
+        self.config.warmstart = warmstart
         self.config.report_timing = report_timing
         if solver_io is not None:
             raise NotImplementedError('Still working on this')
@@ -1571,10 +1601,8 @@ class LegacySolverInterface(object):
         symbol_map.bySymbol = dict(self.symbol_map.bySymbol)
         symbol_map.aliases = dict(self.symbol_map.aliases)
         symbol_map.default_labeler = self.symbol_map.default_labeler
-        model.solutions.add_symbol_map(symbol_map)
-        legacy_results._smap_id = id(symbol_map)
+        legacy_results._smap_id = None
 
-        delete_legacy_soln = True
         if load_solutions:
             if hasattr(model, 'dual') and model.dual.import_enabled():
                 for c, val in results.solution_loader.get_duals().items():
@@ -1586,7 +1614,6 @@ class LegacySolverInterface(object):
                 for v, val in results.solution_loader.get_reduced_costs().items():
                     model.rc[v] = val
         elif results.best_feasible_objective is not None:
-            delete_legacy_soln = False
             for v, val in results.solution_loader.get_primals().items():
                 legacy_soln.variable[symbol_map.getSymbol(v)] = {'Value': val}
             if hasattr(model, 'dual') and model.dual.import_enabled():
@@ -1601,9 +1628,9 @@ class LegacySolverInterface(object):
                 for v, val in results.solution_loader.get_reduced_costs().items():
                     legacy_soln.variable['Rc'] = val
 
-        legacy_results.solution.insert(legacy_soln)
-        if delete_legacy_soln:
-            legacy_results.solution.delete(0)
+            legacy_results.solution.insert(legacy_soln)
+            legacy_results._smap = symbol_map
+            legacy_results._smap_id = id(symbol_map)
 
         self.config = original_config
         self.options = original_options
@@ -1655,6 +1682,18 @@ class LegacySolverInterface(object):
     def __exit__(self, t, v, traceback):
         pass
 
+    @classmethod
+    def api_version(self):
+        """
+        Return the public API supported by this interface.
+
+        Returns
+        -------
+        ~pyomo.common.enums.SolverAPIVersion
+            A solver API enum object
+        """
+        return SolverAPIVersion.V1
+
 
 class SolverFactoryClass(Factory):
     def register(self, name, doc=None):
@@ -1670,6 +1709,10 @@ class SolverFactoryClass(Factory):
             return cls
 
         return decorator
+
+    if TYPE_CHECKING:
+        # NOTE: `Factory.__call__` can return None, but for the common case
+        def __call__(self, name, **kwds) -> Solver: ...
 
 
 SolverFactory = SolverFactoryClass()

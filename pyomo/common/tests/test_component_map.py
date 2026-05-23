@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import pyomo.common.unittest as unittest
 
@@ -48,6 +46,27 @@ class TestComponentMap(unittest.TestCase):
         self.assertNotIn((1, (2, i.v)), m.cm)
         self.assertIn((1, (2, m.v)), m.cm)
         self.assertNotIn((1, (2, m.v)), i.cm)
+
+    def test_hasher(self):
+        m = ComponentMap()
+        a = 'str'
+        m[a] = 5
+        self.assertTrue(m.hasher.hashable(a))
+        self.assertTrue(m.hasher.hashable(str))
+        self.assertEqual(m._dict, {a: (a, 5)})
+        del m[a]
+
+        m.hasher.hashable(a, False)
+        m[a] = 5
+        self.assertFalse(m.hasher.hashable(a))
+        self.assertFalse(m.hasher.hashable(str))
+        self.assertEqual(m._dict, {id(a): (a, 5)})
+
+        class TMP:
+            pass
+
+        with self.assertRaises(KeyError):
+            m.hasher.hashable(TMP)
 
 
 class TestDefaultComponentMap(unittest.TestCase):

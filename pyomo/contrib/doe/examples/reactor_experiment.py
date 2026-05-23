@@ -1,17 +1,14 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 # === Required imports ===
 import pyomo.environ as pyo
 from pyomo.dae import ContinuousSet, DerivativeVar, Simulator
-
 from pyomo.contrib.parmest.experiment import Experiment
 
 
@@ -116,9 +113,11 @@ class ReactorExperiment(Experiment):
         """
         Example finalize model function. There are two main tasks
         here:
+
             1. Extracting useful information for the model to align
                with the experiment. (Here: CA0, t_final, t_control)
             2. Discretizing the model subject to this information.
+
         """
         m = self.model
 
@@ -154,6 +153,7 @@ class ReactorExperiment(Experiment):
         for t in m.t:
             if t in control_points:
                 cv = control_points[t]
+                m.T[t].fix()
             m.T[t].setlb(self.data["T_bounds"][0])
             m.T[t].setub(self.data["T_bounds"][1])
             m.T[t] = cv

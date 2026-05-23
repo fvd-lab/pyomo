@@ -1,20 +1,18 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
-#  Part of this module was originally developed as part of the PyUtilib project
-#  Copyright (c) 2008 Sandia Corporation.
-#  This software is distributed under the BSD License.
-#  Under the terms of Contract DE-AC04-94AL85000 with Sandia Corporation,
-#  the U.S. Government retains certain rights in this software.
-#  ___________________________________________________________________________
+# Part of this module was originally developed as part of the PyUtilib project
+# Copyright (c) 2008 Sandia Corporation.
+# This software is distributed under the BSD License.
+# Under the terms of Contract DE-AC04-94AL85000 with Sandia Corporation,
+# the U.S. Government retains certain rights in this software.
+# ____________________________________________________________________________________
 
 import enum
 import glob
@@ -27,21 +25,29 @@ import subprocess
 import sys
 from io import StringIO
 
-
 # Now, import the base unittest environment.  We will override things
 # specifically later
 from unittest import *
 import unittest as _unittest
-import pytest as pytest
+import pyomo.common.dependencies as deps
 
 from pyomo.common.collections import Mapping, Sequence
-from pyomo.common.dependencies import attempt_import, check_min_version
+from pyomo.common.dependencies import attempt_import, check_min_version, multiprocessing
 from pyomo.common.errors import InvalidValueError
 from pyomo.common.fileutils import import_file
 from pyomo.common.log import LoggingIntercept, pyomo_formatter
 from pyomo.common.tee import capture_output
 
 from unittest import mock
+
+# We defer this import so that we don't add a hard dependence on pytest.
+# Note that importing test modules may cause this import to be resolved
+# (and then enforce a strict dependence on pytest)
+pytest, pytest_available = attempt_import('pytest')
+
+#: A time limit for acquiring the capture_output_lock lock
+#: before terminating a subprocess
+_timeout_terminate_timeout = 2  # seconds
 
 
 def _defaultFormatter(msg, default):
@@ -111,8 +117,10 @@ def assertStructuredAlmostEqual(
         values)
 
     The relative error is computed for numerical values as
-        `abs(first - second) / max(abs(first), abs(second))`,
-    only when first != second (thereby avoiding divide-by-zero errors).
+
+        `abs(first - second) / max(abs(first), abs(second))`
+
+    only when `first != second` (thereby avoiding divide-by-zero errors).
 
     Items (entries other than Sequence / Mapping containers, matching
     strings, and items that satisfy `first is second`) are passed to the
@@ -123,37 +131,47 @@ def assertStructuredAlmostEqual(
 
     Parameters
     ----------
-    first:
+    first :
         the first value to compare
-    second:
+
+    second :
         the second value to compare
-    places: int
+
+    places : int
         `first` and `second` are considered equivalent if their
         difference is between `places` decimal places; equivalent to
         `abstol = 10**-places` (included for compatibility with
         assertAlmostEqual)
-    msg: str
+
+    msg : str
         the message to raise on failure
-    delta: float
+
+    delta : float
         alias for `abstol`
-    abstol: float
+
+    abstol : float
         the absolute tolerance.  `first` and `second` are considered
         equivalent if their absolute difference is less than `abstol`
-    reltol: float
+
+    reltol : float
         the relative tolerance.  `first` and `second` are considered
         equivalent if their absolute difference divided by the
         largest of `first` and `second` is less than `reltol`
-    allow_second_superset: bool
+
+    allow_second_superset : bool
         If True, then extra entries in containers found on second
         will not trigger a failure.
-    item_callback: function
+
+    item_callback : function
         items (other than Sequence / Mapping containers, matching
         strings, and items satisfying `is`) are passed to this callback
         to generate the (nominally floating point) value to use for
         comparison.
-    exception: Exception
+
+    exception : Exception
         exception to raise when `first` is not 'almost equal' to `second`.
-    formatter: function
+
+    formatter : function
         callback for generating the final failure message (for
         compatibility with unittest)
 
@@ -292,31 +310,48 @@ def _assertStructuredAlmostEqual(
     raise exception(msg)
 
 
-def _runner(q, qualname):
+def _runner(pipe, qualname):
     "Utility wrapper for running functions, used by timeout()"
     resultType = _RunnerResult.call
-    if q in _runner.data:
-        fcn, args, kwargs = _runner.data[q]
+    if pipe in _runner.data:
+        fcn, args, kwargs = _runner.data[pipe]
     elif isinstance(qualname, str):
         # Use unittest to instantiate the TestCase and run it
         resultType = _RunnerResult.unittest
 
         def fcn():
-            s = _unittest.TestLoader().loadTestsFromName(qualname)
-            r = _unittest.TestResult()
-            s.run(r)
-            return r.errors + r.failures, r.skipped
+            suite = _unittest.TestLoader().loadTestsFromName(qualname)
+            result = _unittest.TestResult()
+            # Starting in Python 3.14, the default interface is
+            # forkserver, so timeout will fall back on spawn (getting us
+            # here).  Unfortunately, starting in pytest 9.0, if the
+            # test is expecting to fail, pytest will completely suppress
+            # recording the failure from the subTest, causing the main
+            # test to unexpectedly succeed.  We will resolve this by
+            # looking at the testmethod we just loaded and if we are
+            # expecting a failure, then we will turn that off *in the
+            # subTest* so that the result is properly propagated.
+            for test in suite:
+                test.__unittest_expecting_failure__ = False
+                # Note: fetch the unbound function off the class and not
+                # the bound method.
+                func = getattr(test.__class__, test._testMethodName)
+                if hasattr(func, '__unittest_expecting_failure__'):
+                    delattr(func, '__unittest_expecting_failure__')
+            # Now we can actually run the test (including all necessary
+            # setUp/tearDown)
+            suite.run(result)
+            return result.errors + result.failures, result.skipped
 
         args = ()
         kwargs = {}
     else:
         qualname, fcn, args, kwargs = qualname
     _runner.data[qualname] = None
-    OUT = StringIO()
     try:
-        with capture_output(OUT):
+        with capture_output() as OUT:
             result = fcn(*args, **kwargs)
-        q.put((resultType, result, OUT.getvalue()))
+        pipe.send((resultType, result, OUT.getvalue()))
     except:
         import traceback
 
@@ -325,7 +360,7 @@ def _runner(q, qualname):
             e = etype(
                 "%s\nOriginal traceback:\n%s" % (e, ''.join(traceback.format_tb(tb)))
             )
-        q.put((_RunnerResult.exception, e, OUT.getvalue()))
+        pipe.send((_RunnerResult.exception, e, OUT.getvalue()))
     finally:
         _runner.data.pop(qualname)
 
@@ -349,7 +384,7 @@ def timeout(seconds, require_fork=False, timeout_raises=TimeoutError):
     using multiprocessing to execute the function in a forked process.
     If the wrapped function raises an exception, then the exception will
     be re-raised in this process.  If the function times out, a
-    :python:`TimeoutError` will be raised.
+    :class:`TimeoutError` will be raised.
 
     Note that as this method uses multiprocessing, the wrapped function
     should NOT spawn any subprocesses.  The timeout is implemented using
@@ -371,43 +406,54 @@ def timeout(seconds, require_fork=False, timeout_raises=TimeoutError):
 
     Examples
     --------
-    >>> import pyomo.common.unittest as unittest
-    >>> @unittest.timeout(1)
-    ... def test_function():
-    ...     return 42
-    >>> test_function()
-    42
+    .. doctest::
+       :skipif: multiprocessing.get_start_method() != 'fork'
 
-    >>> @unittest.timeout(0.01)
-    ... def test_function():
-    ...     while 1:
-    ...         pass
-    >>> test_function()
-    Traceback (most recent call last):
-        ...
-    TimeoutError: test timed out after 0.01 seconds
+       >>> import pyomo.common.unittest as unittest
+       >>> @unittest.timeout(1)
+       ... def test_function():
+       ...     return 42
+       >>> test_function()
+       42
+
+    .. doctest::
+       :skipif: multiprocessing.get_start_method() != 'fork'
+
+       >>> @unittest.timeout(0.01)
+       ... def test_function():
+       ...     while 1:
+       ...         pass
+       >>> test_function()
+       Traceback (most recent call last):
+           ...
+       TimeoutError: test timed out after 0.01 seconds
 
     """
     import functools
-    import multiprocessing
     import queue
 
     def timeout_decorator(fcn):
         @functools.wraps(fcn)
         def test_timer(*args, **kwargs):
             qualname = '%s.%s' % (fcn.__module__, fcn.__qualname__)
+            # If qualname is in the data dict, then we are in the child
+            # process and are being asked to run the wrapped function.
             if qualname in _runner.data:
                 return fcn(*args, **kwargs)
+            # Parent process: spawn a subprocess to execute the wrapped
+            # function and monitor for timeout
             if require_fork and multiprocessing.get_start_method() != 'fork':
-                raise _unittest.SkipTest("timeout requires unavailable fork interface")
+                raise _unittest.SkipTest(
+                    "timeout() requires unavailable fork interface"
+                )
 
-            q = multiprocessing.Queue()
+            pipe_recv, pipe_send = multiprocessing.Pipe(False)
             if multiprocessing.get_start_method() == 'fork':
                 # Option 1: leverage fork if possible.  This minimizes
                 # the reliance on serialization and ensures that the
                 # wrapped function operates in the same environment.
-                _runner.data[q] = (fcn, args, kwargs)
-                runner_args = (q, qualname)
+                _runner.data[pipe_send] = (fcn, args, kwargs)
+                runner_arg = qualname
             elif (
                 args
                 and fcn.__name__.startswith('test')
@@ -417,36 +463,61 @@ def timeout(seconds, require_fork=False, timeout_raises=TimeoutError):
                 # unittest in the child process with this function as
                 # the sole target.  This ensures that things like setUp
                 # and tearDown are correctly called.
-                runner_args = (q, qualname)
+                runner_arg = qualname
             else:
                 # Option 3: attempt to serialize the function and all
                 # arguments and send them to the (spawned) child
                 # process.  The wrapped function cannot count on any
                 # environment configuration that it does not set up
                 # itself.
-                runner_args = (q, (qualname, test_timer, args, kwargs))
-            test_proc = multiprocessing.Process(target=_runner, args=runner_args)
+                runner_arg = (qualname, test_timer, args, kwargs)
+            test_proc = multiprocessing.Process(
+                target=_runner, args=(pipe_send, runner_arg)
+            )
+            # Set daemon: if the parent process is killed, the child
+            # process should be killed and collected.
             test_proc.daemon = True
             try:
                 test_proc.start()
             except:
-                if type(runner_args[1]) is tuple:
+                if type(runner_arg) is tuple:
                     logging.getLogger(__name__).error(
-                        "Exception raised spawning timeout subprocess "
+                        "Exception raised spawning timeout() subprocess "
                         "on a platform that does not support 'fork'.  "
                         "It is likely that either the wrapped function or "
                         "one of its arguments is not serializable"
                     )
                 raise
             try:
-                resultType, result, stdout = q.get(True, seconds)
-            except queue.Empty:
-                test_proc.terminate()
-                raise timeout_raises(
-                    "test timed out after %s seconds" % (seconds,)
-                ) from None
+                if pipe_recv.poll(seconds):
+                    resultType, result, stdout = pipe_recv.recv()
+                else:
+                    # Note: because we are using capture_output within
+                    # the _runner handler, we can trigger a deadlock
+                    # when we call terminate() while the _runner's
+                    # capture_output holds the capture_output_lock lock
+                    # (terminate() bypasses all __exit__ handlers!).  To
+                    # avoid that, we will grab the lock here before
+                    # terminating the subprocess.
+                    locked = deps.capture_output_lock.acquire(
+                        timeout=_timeout_terminate_timeout
+                    )
+                    if not locked:
+                        logging.getLogger(__name__).error(
+                            "Failed to acquire capture_output_lock "
+                            "Lock before terminating subprocess on timeout: "
+                            "process deadlock is likely."
+                        )
+                    try:
+                        test_proc.terminate()
+                    finally:
+                        if locked:
+                            deps.capture_output_lock.release()
+                    raise timeout_raises(
+                        "test timed out after %s seconds" % (seconds,)
+                    ) from None
             finally:
-                _runner.data.pop(q, None)
+                _runner.data.pop(pipe_send, None)
             sys.stdout.write(stdout)
             test_proc.join()
             if resultType == _RunnerResult.call:
@@ -489,14 +560,31 @@ class TestCase(_unittest.TestCase):
 
     This class derives from unittest.TestCase and provides the following
     additional functionality:
-      - additional assertions:
-        * :py:meth:`assertStructuredAlmostEqual`
 
-    unittest.TestCase documentation
-    -------------------------------
+    * additional assertions:
+       - :py:meth:`~TestCase.assertStructuredAlmostEqual`
+       - :py:meth:`assertExpressionsEqual`
+       - :py:meth:`assertExpressionsStructurallyEqual`
+
+    * updated assertions:
+       - :py:meth:`assertRaisesRegex`
+
+    :py:class:`unittest.TestCase` documentation
+    -------------------------------------------
     """
 
-    __doc__ += _unittest.TestCase.__doc__
+    # Note that the current unittest.TestCase documentation generates
+    # sphinx warnings.  We will clean up that documentation to suppress
+    # the warnings.
+    __doc__ += (
+        re.sub(
+            r'^( +)(\* +[^:]+:) *',
+            r'\n\1\2\n\1    ',
+            _unittest.TestCase.__doc__.rstrip(),
+            flags=re.M,
+        )
+        + "\n\n"
+    )
 
     # By default, we always want to spend the time to create the full
     # diff of the test reault and the baseline
@@ -514,6 +602,8 @@ class TestCase(_unittest.TestCase):
         allow_second_superset=False,
         item_callback=_floatOrCall,
     ):
+        # Note: __doc__ copied from assertStructuredAlmostEqual below
+        #
         assertStructuredAlmostEqual(
             first=first,
             second=second,
@@ -537,18 +627,28 @@ class TestCase(_unittest.TestCase):
         normalizes all consecutive whitespace in the exception message
         to a single space before checking the regular expression.
 
-        Args:
-            expected_exception: Exception class expected to be raised.
-            expected_regex: Regex (re.Pattern object or string) expected
-                    to be found in error message.
-            args: Function to be called and extra positional args.
-            kwargs: Extra kwargs.
-            msg: Optional message used in case of failure. Can only be used
-                    when assertRaisesRegex is used as a context manager.
-            normalize_whitespace: Optional bool that, if True, collapses
-                    consecutive whitespace (including newlines) into a
-                    single space before checking against the regular
-                    expression
+        Parameters
+        ----------
+        expected_exception : Exception
+            Exception class expected to be raised.
+
+        expected_regex : `re.Pattern` or str
+            Regular expression expected to be found in error message.
+
+        *args :
+            Function to be called and extra positional args.
+
+        **kwargs :
+            Extra keyword args.
+
+        msg : str
+            Optional message used in case of failure. Can only be used
+            when assertRaisesRegex is used as a context manager.
+
+        normalize_whitespace : bool, default=False
+            If True, collapses consecutive whitespace (including
+            newlines) into a single space before checking against the
+            regular expression
 
         """
         normalize_whitespace = kwargs.pop('normalize_whitespace', False)
@@ -560,6 +660,29 @@ class TestCase(_unittest.TestCase):
         return context.handle('assertRaisesRegex', args, kwargs)
 
     def assertExpressionsEqual(self, a, b, include_named_exprs=True, places=None):
+        """Assert that two Pyomo expressions are equal.
+
+        This converts the expressions `a` and `b` into prefix notation
+        and then compares the resulting lists.  All nodes in the tree
+        are compared using py:meth:`assertEqual` (or
+        py:meth:`assertAlmostEqual`)
+
+        Parameters
+        ----------
+        a: ExpressionBase or native type
+
+        b: ExpressionBase or native type
+
+        include_named_exprs : bool
+            If True (the default), the comparison expands all named
+            expressions when generating the prefix notation
+
+        places : float
+            Number of decimal places required for equality of floating
+            point numbers in the expression. If None (the default), the
+            expressions must be exactly equal.
+
+        """
         from pyomo.core.expr.compare import assertExpressionsEqual
 
         return assertExpressionsEqual(self, a, b, include_named_exprs, places)
@@ -567,6 +690,30 @@ class TestCase(_unittest.TestCase):
     def assertExpressionsStructurallyEqual(
         self, a, b, include_named_exprs=True, places=None
     ):
+        """Assert that two Pyomo expressions are structurally equal.
+
+        This converts the expressions `a` and `b` into prefix notation
+        and then compares the resulting lists.  Operators and
+        (non-native type) leaf nodes in the prefix representation are
+        converted to strings before comparing (so that things like
+        variables can be compared across clones or pickles)
+
+        Parameters
+        ----------
+        a: ExpressionBase or native type
+
+        b: ExpressionBase or native type
+
+        include_named_exprs: bool
+            If True (the default), the comparison expands all named
+            expressions when generating the prefix notation
+
+        places: float
+            Number of decimal places required for equality of floating
+            point numbers in the expression. If None (the default), the
+            expressions must be exactly equal.
+
+        """
         from pyomo.core.expr.compare import assertExpressionsStructurallyEqual
 
         return assertExpressionsStructurallyEqual(
@@ -574,7 +721,12 @@ class TestCase(_unittest.TestCase):
         )
 
 
-class BaselineTestDriver(object):
+TestCase.assertStructuredAlmostEqual.__doc__ = re.sub(
+    'exception :.*', '', assertStructuredAlmostEqual.__doc__, flags=re.S
+)
+
+
+class BaselineTestDriver:
     """Generic driver for performing baseline tests in bulk
 
     This test driver was originally crafted for testing the examples in
@@ -773,10 +925,11 @@ class BaselineTestDriver(object):
             # next 6 patterns ignore entries in pstats reports:
             'function calls',
             'List reduced',
-            '.py:',
+            '.py:',  # timing/profiling output
             ' {built-in method',
             ' {method',
             ' {pyomo.core.expr.numvalue.as_numeric}',
+            ' {gurobipy.',
         ):
             if field in line:
                 return True

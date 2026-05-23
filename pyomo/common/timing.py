@@ -1,20 +1,18 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
-#  This module was originally developed as part of the PyUtilib project
-#  Copyright (c) 2008 Sandia Corporation.
-#  This software is distributed under the BSD License.
-#  Under the terms of Contract DE-AC04-94AL85000 with Sandia Corporation,
-#  the U.S. Government retains certain rights in this software.
-#  ___________________________________________________________________________
+# This module was originally developed as part of the PyUtilib project
+# Copyright (c) 2008 Sandia Corporation.
+# This software is distributed under the BSD License.
+# Under the terms of Contract DE-AC04-94AL85000 with Sandia Corporation,
+# the U.S. Government retains certain rights in this software.
+# ____________________________________________________________________________________
 
 """A module of utilities for collecting timing information
 
@@ -44,7 +42,7 @@ _construction_logger = logging.getLogger('pyomo.common.timing.construction')
 _transform_logger = logging.getLogger('pyomo.common.timing.transformation')
 
 
-class report_timing(object):
+class report_timing:
     def __init__(self, stream=True, level=logging.INFO):
         """Set reporting of Pyomo timing information.
 
@@ -99,7 +97,7 @@ class report_timing(object):
         self.reset()
 
 
-class GeneralTimer(object):
+class GeneralTimer:
     def __init__(self, fmt, data):
         self.fmt = fmt
         self.data = data
@@ -119,7 +117,7 @@ class GeneralTimer(object):
         return self.fmt % self.data
 
 
-class ConstructionTimer(object):
+class ConstructionTimer:
     __slots__ = ('obj', 'timer')
     msg = "%6.*f seconds to construct %s %s%s"
     in_progress = "ConstructionTimer object for %s %s; %0.3f elapsed seconds"
@@ -184,7 +182,7 @@ class ConstructionTimer(object):
         )
 
 
-class TransformationTimer(object):
+class TransformationTimer:
     __slots__ = ('obj', 'mode', 'timer')
     msg = "%6.*f seconds to apply Transformation %s%s"
     in_progress = "TransformationTimer object for %s%s; %0.3f elapsed seconds"
@@ -233,7 +231,7 @@ class TransformationTimer(object):
 default_timer = time.perf_counter
 
 
-class TicTocTimer(object):
+class TicTocTimer:
     """A class to calculate and report elapsed time.
 
     Examples:
@@ -347,6 +345,11 @@ class TicTocTimer(object):
             level (int): an optional logging output level.
         """
 
+        # Note: important to do this first so that we don't add a random
+        # amount of time for I/O operations or extracting the stack.
+        # This helps ensure that the timing tests are less fragile.
+        now = default_timer()
+
         if msg is _NotSpecified:
             msg = 'File "%s", line %s in %s' % traceback.extract_stack(limit=2)[0][:3]
         if args and msg is not None and '%' not in msg:
@@ -365,11 +368,10 @@ class TicTocTimer(object):
             if args:
                 logger, *args = args
 
-        now = default_timer()
         if self._start_count or self._lastTime is None:
             ans = self._cumul
             if self._lastTime:
-                ans += default_timer() - self._lastTime
+                ans += now - self._lastTime
             if msg is not None:
                 fmt = "[%8.2f|%4d] %s"
                 data = (ans, self._start_count, msg)
@@ -502,7 +504,7 @@ def _clear_timers_except(timer, to_retain):
             timer.timers.pop(key)
 
 
-class _HierarchicalHelper(object):
+class _HierarchicalHelper:
     def __init__(self):
         self.tic_toc = TicTocTimer()
         self.timers = dict()
@@ -585,7 +587,7 @@ class _HierarchicalHelper(object):
         _clear_timers_except(self, to_retain)
 
 
-class HierarchicalTimer(object):
+class HierarchicalTimer:
     """A class for collecting and displaying hierarchical timing
     information
 

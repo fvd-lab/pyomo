@@ -1,22 +1,20 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import collections
-import enum
 import functools
 import itertools
 import logging
 import operator
 import sys
 
+from pyomo.common import enums
 from pyomo.common.collections import Sequence, ComponentMap, ComponentSet
 from pyomo.common.deprecation import deprecation_warning
 from pyomo.common.errors import DeveloperError, InvalidValueError
@@ -36,6 +34,7 @@ from pyomo.core.base import (
     Block,
     Constraint,
     Expression,
+    NumericLabeler,
     Suffix,
     SortComponents,
 )
@@ -45,7 +44,7 @@ from pyomo.core.expr.numvalue import is_fixed, value
 import pyomo.core.expr as EXPR
 import pyomo.core.kernel as kernel
 
-logger = logging.getLogger('pyomo.core')
+logger = logging.getLogger(__name__)
 
 valid_expr_ctypes_minlp = {Var, Param, Expression, Objective}
 valid_active_ctypes_minlp = {Block, Constraint, Objective, Suffix}
@@ -65,9 +64,14 @@ nan = float('nan')
 int_float = {int, float}
 
 
-class ExprType(enum.IntEnum):
+class ExprType(enums.IntEnum):
+    # Note that the ordering is meaningful, and we will compare
+    # instances using relational operators.  In particular, we assume
+    # that the Enum values increase in polynomial degree, starting at
+    # CONSTANT and endine at GENERAL (nonlinear).
     CONSTANT = 0
-    FIXED = 5
+    FIXED = 3
+    VARIABLE = 5
     MONOMIAL = 10
     LINEAR = 20
     QUADRATIC = 30
@@ -82,7 +86,7 @@ _FileDeterminism_deprecation = {
 }
 
 
-class FileDeterminism(enum.IntEnum):
+class FileDeterminism(enums.IntEnum):
     NONE = 0
     # DEPRECATED_KEYS = 1
     # DEPRECATED_KEYS_AND_NAMES = 2
@@ -91,14 +95,14 @@ class FileDeterminism(enum.IntEnum):
     SORT_SYMBOLS = 30
 
     # We will define __str__ and __format__ so that behavior in python
-    # 3.11 is consistent with 3.7 - 3.10.
+    # 3.11+ is consistent with 3.7 - 3.10.
 
     def __str__(self):
-        return enum.Enum.__str__(self)
+        return enums.Enum.__str__(self)
 
     def __format__(self, spec):
         # Removal of Python 3.7 support allows us to use Enum.__format__
-        return enum.Enum.__format__(self, spec)
+        return enums.Enum.__format__(self, spec)
 
     @classmethod
     def _missing_(cls, value):
@@ -115,6 +119,21 @@ class FileDeterminism(enum.IntEnum):
             )
             return new
         return super()._missing_(value)
+
+
+def val2str(val):
+    """Converts an object to str with special handling for InvalidNumber
+
+    This will convert the ``val`` to a string.  If ``val`` is an
+    InvalidNumber, the conversion to string will bypass the exception
+    raised by :py:meth:`InvalidNumber.__str__`.
+
+    """
+    if hasattr(val, 'to_string'):
+        return val.to_string()
+    if hasattr(val, '_str'):
+        return val._str()
+    return repr(val)
 
 
 class InvalidNumber(PyomoObject):
@@ -150,26 +169,47 @@ class InvalidNumber(PyomoObject):
         args, causes = InvalidNumber.parse_args(*args)
         try:
             return InvalidNumber(op(*args), causes)
-        except (TypeError, ArithmeticError):
+        except TypeError:
             # TypeError will be raised when operating on incompatible
-            # types (e.g., int + None); ArithmeticError can be raised by
-            # invalid operations (like divide by zero)
+            # types (e.g., int + None);
             return InvalidNumber(self.value, causes)
+        except (ArithmeticError, ValueError):
+            # ArithmeticError and ValueError can be raised by invalid
+            # operations (like divide by zero or log of a negative number)
+            return InvalidNumber(float('nan'), causes)
 
     def __eq__(self, other):
-        return self._cmp(operator.eq, other)
+        ans = self._cmp(operator.eq, other)
+        try:
+            return bool(ans)
+        except ValueError:
+            # ValueError can be raised by numpy.ndarray when two arrays
+            # are returned.  In that case, ndarray returns a new ndarray
+            # of bool values.  We will fall back on using `all` to
+            # reduce it to a single bool.
+            try:
+                return all(ans)
+            except:
+                pass
+            raise
 
     def __lt__(self, other):
-        return self._cmp(operator.lt, other)
+        # Note that as < is ambiguous for arrays, we will attempt to
+        # cast the result to bool and if it was an array, allow the
+        # exception to propagate
+        return bool(self._cmp(operator.lt, other))
 
     def __gt__(self, other):
-        return self._cmp(operator.gt, other)
+        # See the comment in __lt__() on the use of bool()
+        return bool(self._cmp(operator.gt, other))
 
     def __le__(self, other):
-        return self._cmp(operator.le, other)
+        # See the comment in __lt__() on the use of bool()
+        return bool(self._cmp(operator.le, other))
 
     def __ge__(self, other):
-        return self._cmp(operator.ge, other)
+        # See the comment in __lt__() on the use of bool()
+        return bool(self._cmp(operator.ge, other))
 
     def _error(self, msg):
         causes = list(filter(None, self.causes))
@@ -179,14 +219,21 @@ class InvalidNumber(PyomoObject):
         raise InvalidValueError(msg)
 
     def __str__(self):
-        # We will support simple conversion of InvalidNumber to strings
-        # (for reporting purposes)
+        # We want attempts to convert InvalidNumber to a string
+        # representation to raise a InvalidValueError, unless we are in
+        # the middle of processing an exception.  In that case, it is
+        # very likely that an exception handler is generating an error
+        # message.  We will play nice and return a reasonable string.
+        if sys.exc_info()[1] is None:
+            self._error(f'Cannot emit {self._str()} in compiled representation')
+        else:
+            return self._str()
+
+    def _str(self):
         return f'InvalidNumber({self.value!r})'
 
     def __repr__(self):
-        # We want attempts to convert InvalidNumber to a string
-        # representation to raise a InvalidValueError.
-        self._error(f'Cannot emit {str(self)} in compiled representation')
+        return str(self)
 
     def __format__(self, format_spec):
         # FIXME: We want to move to where converting InvalidNumber to
@@ -194,12 +241,12 @@ class InvalidNumber(PyomoObject):
         # InvalidValueError.  However, at the moment, this breaks some
         # tests in PyROS.
         # return self.value.__format__(format_spec)
-        self._error(f'Cannot emit {str(self)} in compiled representation')
+        return self._error(f'Cannot emit {str(self)} in compiled representation')
 
     def __float__(self):
         # We want attempts to convert InvalidNumber to a float
         # representation to raise a InvalidValueError.
-        self._error(f'Cannot convert {str(self)} to float')
+        return self._error(f'Cannot convert {str(self)} to float')
 
     def __neg__(self):
         return self._op(operator.neg, self)
@@ -242,12 +289,12 @@ _CONSTANT = ExprType.CONSTANT
 
 
 class BeforeChildDispatcher(collections.defaultdict):
-    """Dispatcher for handling the :py:class:`StreamBasedExpressionVisitor`
+    """Dispatcher for handling the :class:`StreamBasedExpressionVisitor`
     `beforeChild` callback
 
-    This dispatcher implements a specialization of :py:`defaultdict`
+    This dispatcher implements a specialization of :class:`defaultdict`
     that supports automatic type registration.  Any missing types will
-    return the :py:meth:`register_dispatcher` method, which (when called
+    return the :meth:`register_dispatcher` method, which (when called
     as a callback) will interrogate the type, identify the appropriate
     callback, add the callback to the dict, and return the result of
     calling the callback.  As the callback is added to the dict, no type
@@ -283,10 +330,26 @@ class BeforeChildDispatcher(collections.defaultdict):
             else:
                 self[child_type] = self._before_invalid
         elif not child.is_expression_type():
-            if child.is_potentially_variable():
-                self[child_type] = self._before_var
-            else:
-                self[child_type] = self._before_param
+            if child.is_indexed():
+                cdata = child._ComponentDataClass(child)
+                if cdata.is_expression_type():
+                    self[child_type] = self._before_indexed_expr
+                elif cdata.is_numeric_type() or child.is_logical_type():
+                    if cdata.is_potentially_variable():
+                        self[child_type] = self._before_indexed_var
+                    else:
+                        self[child_type] = self._before_indexed_param
+                elif child.is_component_type():
+                    self[child_type] = self._before_indexed_component
+            elif child.is_numeric_type() or child.is_logical_type():
+                if child.is_potentially_variable():
+                    self[child_type] = self._before_var
+                elif isinstance(child, EXPR.IndexTemplate):
+                    self[child_type] = self._before_index_template
+                else:
+                    self[child_type] = self._before_param
+            elif child.is_component_type():
+                self[child_type] = self._before_component
         elif not child.is_potentially_variable():
             self[child_type] = self._before_npv
             pv_base_type = child.potentially_variable_base_class()
@@ -349,14 +412,49 @@ class BeforeChildDispatcher(collections.defaultdict):
         try:
             return False, (
                 _CONSTANT,
-                visitor.check_constant(visitor.evaluate(child), child),
+                check_constant(visitor.evaluate(child), child, visitor),
             )
         except (ValueError, ArithmeticError):
             return True, None
 
     @staticmethod
     def _before_param(visitor, child):
-        return False, (_CONSTANT, visitor.check_constant(child.value, child))
+        return False, (_CONSTANT, check_constant(child.value, child, visitor))
+
+    @staticmethod
+    def _before_index_template(visitor, child):
+        raise NotImplementedError(
+            f"{visitor.__class__.__name__} can not handle expressions "
+            f"containing {child.__class__} nodes"
+        )
+
+    @staticmethod
+    def _before_indexed_expr(visitor, child):
+        raise NotImplementedError(
+            f"{visitor.__class__.__name__} can not handle expressions "
+            f"containing {child.__class__} nodes"
+        )
+
+    @staticmethod
+    def _before_indexed_param(visitor, child):
+        raise NotImplementedError(
+            f"{visitor.__class__.__name__} can not handle expressions "
+            f"containing {child.__class__} nodes"
+        )
+
+    @staticmethod
+    def _before_indexed_var(visitor, child):
+        raise NotImplementedError(
+            f"{visitor.__class__.__name__} can not handle expressions "
+            f"containing {child.__class__} nodes"
+        )
+
+    @staticmethod
+    def _before_component(visitor, child):
+        raise NotImplementedError(
+            f"{visitor.__class__.__name__} can not handle expressions "
+            f"containing {child.__class__} nodes"
+        )
 
     #
     # The following methods must be defined by derivative classes (along
@@ -375,10 +473,10 @@ class BeforeChildDispatcher(collections.defaultdict):
 
 
 class ExitNodeDispatcher(collections.defaultdict):
-    """Dispatcher for handling the :py:class:`StreamBasedExpressionVisitor`
+    """Dispatcher for handling the :class:`StreamBasedExpressionVisitor`
     `exitNode` callback
 
-    This dispatcher implements a specialization of :py:`defaultdict`
+    This dispatcher implements a specialization of :class:`defaultdict`
     that supports automatic type registration.  As the identified
     callback is added to the dict, no type will incur the overhead of
     `register_dispatcher` more than once.
@@ -399,8 +497,8 @@ class ExitNodeDispatcher(collections.defaultdict):
 
     def __missing__(self, key):
         if type(key) is tuple:
-            # Only lookup/cache argument-specific handlers for unary,
-            # binary and ternary operators
+            # Only lookup/cache argument-specific handlers for unary or
+            # binary operators
             if len(key) <= 3:
                 node_class = key[0]
                 node_args = key[1:]
@@ -450,6 +548,17 @@ class ExitNodeDispatcher(collections.defaultdict):
         )
 
 
+def initialize_exit_node_dispatcher(exit_handlers):
+    exit_dispatcher = {}
+    for cls, handlers in exit_handlers.items():
+        for args, fcn in handlers.items():
+            if args is None:
+                exit_dispatcher[cls] = fcn
+            else:
+                exit_dispatcher[(cls, *args)] = fcn
+    return exit_dispatcher
+
+
 def apply_node_operation(node, args):
     try:
         ans = node._apply_operation(args)
@@ -480,7 +589,7 @@ def complex_number_error(value, visitor, expr, node=""):
 
 
 def categorize_valid_components(
-    model, active=True, sort=None, valid=set(), targets=set()
+    model, active=True, sort=None, valid=None, targets=None
 ):
     """Walk model and check for valid component types
 
@@ -524,6 +633,11 @@ def categorize_valid_components(
         list of component data objects found on the model.
 
     """
+    if valid is None:
+        valid = set()
+    if targets is None:
+        targets = set()
+
     assert active in (True, None)
     # Note: we assume every target component is valid but that we expect
     # there to be far mode valid components than target components.
@@ -562,7 +676,7 @@ def categorize_valid_components(
                     ctype=ctype,
                     active=active,
                     descend_into=False,
-                    sort=SortComponents.unsorted,
+                    sort=SortComponents.deterministic,
                 )
             )
     return component_map, {k: v for k, v in unrecognized.items() if v}
@@ -637,17 +751,17 @@ def initialize_var_map_from_column_order(model, config, var_map):
     return var_map
 
 
-def ordered_active_constraints(model, config):
-    sorter = FileDeterminism_to_SortComponents(config.file_determinism)
-    constraints = model.component_data_objects(Constraint, active=True, sort=sorter)
-
+def row_order2row_map(config):
+    """Convert a row_order (list or ComponentMap) into a dict mapping
+    constraint id -> row index. Returns an empty dict if no ordering."""
     row_order = config.row_order
-    if row_order is None or row_order.__class__ is bool:
-        return constraints
-    elif isinstance(row_order, ComponentMap):
-        # The row order has historically also supported a ComponentMap of
-        # component to position in addition to the simple list of
-        # components.  Convert it to the simple list
+    if row_order is None or isinstance(row_order, bool):
+        return {}
+
+    sorter = FileDeterminism_to_SortComponents(config.file_determinism)
+
+    if isinstance(row_order, ComponentMap):
+        # Convert ComponentMap to sorted list based on its values
         row_order = sorted(row_order, key=row_order.__getitem__)
 
     row_map = {}
@@ -657,16 +771,157 @@ def ordered_active_constraints(model, config):
                 row_map[id(c)] = c
         else:
             row_map[id(con)] = con
+
+    # Map the implicit dict ordering to an explicit 0..n ordering
+    return {_id: i for i, _id in enumerate(row_map)}
+
+
+def ordered_active_constraints(model, config):
+    sorter = FileDeterminism_to_SortComponents(config.file_determinism)
+    constraints = model.component_data_objects(Constraint, active=True, sort=sorter)
+
+    row_map = row_order2row_map(config)
     if not row_map:
         return constraints
-    # map the implicit dict ordering to an explicit 0..n ordering
-    row_map = {_id: i for i, _id in enumerate(row_map)}
     # sorted() is stable (per Python docs), so we can let all
     # unspecified rows have a row number one bigger than the
     # number of rows specified by the user ordering.
     _n = len(row_map)
     _row_getter = row_map.get
     return sorted(constraints, key=lambda x: _row_getter(id(x), _n))
+
+
+class VarRecorder:
+    def __init__(self, var_map, sorter):
+        self.var_map = var_map
+        self.sorter = sorter
+
+    def add(self, var):
+        # We always add all indices to the var_map at once so that
+        # we can honor deterministic ordering of unordered sets
+        # (because the user could have iterated over an unordered
+        # set when constructing an expression, thereby altering the
+        # order in which we would see the variables)
+        vm = self.var_map
+        try:
+            _iter = var.parent_component().values(self.sorter)
+        except AttributeError:
+            # Note that this only works for the AML, as kernel does not
+            # provide a parent_component()
+            _iter = (var,)
+        for v in _iter:
+            if not v.fixed:
+                vm[id(v)] = v
+
+
+class OrderedVarRecorder:
+    def __init__(self, var_map, var_order, sorter):
+        self.var_map = var_map
+        self.var_order = var_order
+        self.sorter = sorter
+        assert len(var_map) == len(var_order)
+
+    def add(self, var):
+        # We always add all indices to the var_map at once so that
+        # we can honor deterministic ordering of unordered sets
+        # (because the user could have iterated over an unordered
+        # set when constructing an expression, thereby altering the
+        # order in which we would see the variables)
+        vm = self.var_map
+        vo = self.var_order
+        try:
+            _iter = var.parent_component().values(self.sorter)
+        except AttributeError:
+            # Note that this only works for the AML, as kernel does not
+            # provide a parent_component()
+            _iter = (var,)
+        for i, v in enumerate(_iter, start=len(vo)):
+            vid = id(v)
+            vo[vid] = i
+            if not v.fixed:
+                vm[vid] = v
+
+
+class TemplateVarRecorder:
+    def __init__(self, var_map, sorter):
+        self.var_map = var_map
+        self._var_order = None
+        self._var_list = None
+        self.sorter = sorter
+        self.env = {None: 0}
+        self.symbolmap = EXPR.SymbolMap(NumericLabeler('x'))
+        if var_map:
+            # If the user provided an initial var_map, we want to honor
+            # that ordering.  This means we need to both initialize the
+            # env dict with all the Vars referenced, PLUS fill in any
+            # additional vars that we would have indexed/recorded in
+            # add().
+            next_i = len(var_map)
+            for i, v in enumerate(list(var_map.values())):
+                var_comp = v.parent_component()
+                name = self.symbolmap.getSymbol(var_comp)
+                ve = self.env.get(name, None)
+                if ve is None:
+                    ve = self.env[name] = {}
+                    # Fill-in all var data in this component.  Note that
+                    # we are careful to only add / assign column ids to
+                    # var data that we will not later encounter in the
+                    # var_map.
+                    for idx, vdata in var_comp.items(self.sorter):
+                        vid = id(vdata)
+                        if vid not in var_map:
+                            var_map[vid] = v
+                            ve[idx] = next_i
+                            next_i += 1
+                ve[v.index()] = i
+
+    @property
+    def var_order(self):
+        if self._var_order is None:
+            self._var_order = {vid: i for i, vid in enumerate(self.var_map)}
+        return self._var_order
+
+    @property
+    def var_list(self):
+        if self._var_list is None or len(self._var_list) != len(self.var_map):
+            self._var_list = list(self.var_map.values())
+        return self._var_list
+
+    def add(self, var):
+        # Note: the following is mostly a copy of
+        # LinearBeforeChildDispatcher.record_var, but with extra
+        # handling to update the env in the same loop
+        var_comp = var.parent_component()
+        # Double-check that the component has not already been processed
+        # (through an individual var data)
+        name = self.symbolmap.getSymbol(var_comp)
+        if name in self.env:
+            return
+
+        # We always add all indices to the var_map at once so that
+        # we can honor deterministic ordering of unordered sets
+        # (because the user could have iterated over an unordered
+        # set when constructing an expression, thereby altering the
+        # order in which we would see the variables)
+        vm = self.var_map
+        ve = self.env[name] = {}
+        try:
+            _iter = var_comp.items(self.sorter)
+        except AttributeError:
+            # Note that this only works for the AML, as kernel does not
+            # provide a parent_component()
+            _iter = (None, var)
+        if self._var_order is None:
+            for i, (idx, v) in enumerate(_iter, start=len(vm)):
+                vm[id(v)] = v
+                ve[idx] = i
+        else:
+            vo = self._var_order
+            for i, (idx, v) in enumerate(_iter, start=len(vm)):
+                vid = id(v)
+                vm[vid] = v
+                ve[idx] = i
+                vo[vid] = i
 
 
 # Copied from cpxlp.py:
@@ -725,3 +980,49 @@ def ftoa(val, parenthesize_negative_values=False):
         return '(' + a[:i] + ')'
     else:
         return a[:i]
+
+
+def check_constant(ans, obj, visitor):
+    # [ESJ 10/15/25]: The only reason this takes the visitor as an
+    # argument is to pass it to the complex_number_error function, and
+    # the only reason it needs it is to get the name of the class. But
+    # it is public, so I'm not changing anything about that at the
+    # moment.
+    if ans.__class__ not in native_numeric_types:
+        # None can be returned from uninitialized Var/Param objects
+        if ans is None:
+            return InvalidNumber(
+                None, f"'{obj}' evaluated to a nonnumeric value '{ans}'"
+            )
+        if ans.__class__ is InvalidNumber:
+            return ans
+        elif ans.__class__ in native_complex_types:
+            return complex_number_error(ans, visitor, obj)
+        else:
+            # It is possible to get other non-numeric types.  Most
+            # common are bool and 1-element numpy.array().  We will
+            # attempt to convert the value to a float before
+            # proceeding.
+            #
+            # Note that as of NumPy 1.25, blindly casting a
+            # 1-element ndarray to a float will generate a
+            # deprecation warning.  We will explicitly test for
+            # that, but want to do the test without triggering the
+            # numpy import
+            for cls in ans.__class__.__mro__:
+                if cls.__name__ == 'ndarray' and cls.__module__ == 'numpy':
+                    if len(ans) == 1:
+                        ans = ans[0]
+                    break
+            # TODO: we should check bool and warn/error (while bool is
+            # convertible to float in Python, they have very
+            # different semantic meanings in Pyomo).
+            try:
+                ans = float(ans)
+            except:
+                return InvalidNumber(
+                    ans, f"'{obj}' evaluated to a nonnumeric value '{ans}'"
+                )
+    if ans != ans:
+        return InvalidNumber(nan, f"'{obj}' evaluated to a nonnumeric value '{ans}'")
+    return ans

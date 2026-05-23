@@ -1,28 +1,28 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
-#  This module was originally developed as part of the IDAES PSE Framework
+# This module was originally developed as part of the IDAES PSE Framework
 #
-#  Institute for the Design of Advanced Energy Systems Process Systems
-#  Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
-#  software owners: The Regents of the University of California, through
-#  Lawrence Berkeley National Laboratory,  National Technology & Engineering
-#  Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
-#  University Research Corporation, et al. All rights reserved.
+# Institute for the Design of Advanced Energy Systems Process Systems
+# Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
+# software owners: The Regents of the University of California, through
+# Lawrence Berkeley National Laboratory,  National Technology & Engineering
+# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
+# University Research Corporation, et al. All rights reserved.
 #
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """
 A simple GUI viewer/editor for Pyomo models.
 """
+
 __author__ = "John Eslick"
 
 import os
@@ -39,28 +39,39 @@ except ImportError:
 import pyomo.contrib.viewer.report as rpt
 import pyomo.environ as pyo
 import pyomo.contrib.viewer.qt as myqt
+
+from pyomo.common.fileutils import this_file_dir
+from pyomo.common.flags import building_documentation
 from pyomo.contrib.viewer.model_browser import ModelBrowser
 from pyomo.contrib.viewer.residual_table import ResidualTable
 from pyomo.contrib.viewer.model_select import ModelSelect
 from pyomo.contrib.viewer.ui_data import UIData
-from pyomo.common.fileutils import this_file_dir
 
 _log = logging.getLogger(__name__)
 
-_mypath = this_file_dir()
-try:
-    _MainWindowUI, _MainWindow = myqt.uic.loadUiType(os.path.join(_mypath, "main.ui"))
-except:
-    _log.exception("Failed to load UI files.")
 
-    # This lets the file still be imported, but you won't be able to use it
-    # Allowing this to be imported will let some basic tests pass without PyQt
-    class _MainWindowUI(object):
-        pass
+# This lets the file be imported when the Qt UI is not available (or
+# when building docs), but you won't be able to use it.  Allowing this
+# will let some basic tests run (and pass) without PyQt
+class _MainWindowUI:
+    pass
 
-    class _MainWindow(object):
-        pass
 
+class _MainWindow:
+    pass
+
+
+# Note that the classes loaded here have signatures that are not
+# parsable by Sphinx, so we won't attempt to import them if we are
+# building the API documentation.
+if not building_documentation():
+    _mypath = this_file_dir()
+    try:
+        _MainWindowUI, _MainWindow = myqt.uic.loadUiType(
+            os.path.join(_mypath, "main.ui")
+        )
+    except:
+        _log.exception("Failed to load UI files.")
 
 for _err in myqt.import_errors:
     _log.error(_err)
@@ -153,13 +164,13 @@ class MainWindow(_MainWindow, _MainWindowUI):
         self.actionTabs.triggered.connect(self.toggle_tabs)
         self._dialog = None  # dialog displayed so can access it easier for tests
         self._dialog_test_button = None  # button clicked on dialog in test mode
-        self.mdiArea.setViewMode(myqt.QMdiArea.TabbedView)
+        self.mdiArea.setViewMode(myqt.QMdiArea.ViewMode.TabbedView)
 
     def toggle_tabs(self):
-        if self.mdiArea.viewMode() == myqt.QMdiArea.SubWindowView:
-            self.mdiArea.setViewMode(myqt.QMdiArea.TabbedView)
-        elif self.mdiArea.viewMode() == myqt.QMdiArea.TabbedView:
-            self.mdiArea.setViewMode(myqt.QMdiArea.SubWindowView)
+        if self.mdiArea.viewMode() == myqt.QMdiArea.ViewMode.SubWindowView:
+            self.mdiArea.setViewMode(myqt.QMdiArea.ViewMode.TabbedView)
+        elif self.mdiArea.viewMode() == myqt.QMdiArea.ViewMode.TabbedView:
+            self.mdiArea.setViewMode(myqt.QMdiArea.ViewMode.SubWindowView)
         else:
             # There are no other modes unless there is a change in Qt so pass
             pass
@@ -239,7 +250,7 @@ class MainWindow(_MainWindow, _MainWindowUI):
         Other things that could be added
         * number of deactivated equalities
         * number of active inequality constraints
-        * number of deactivated inequality constratins
+        * number of deactivated inequality constraints
         * number of free variables not appearing in active constraints
         * number of fixed variables not appearing in active constraints
         * number of free variables not appearing in any constraints
@@ -258,15 +269,11 @@ class MainWindow(_MainWindow, _MainWindowUI):
         msg.setStyleSheet("QLabel{min-width: 600px;}")
         self._dialog = msg
         msg.setWindowTitle("Model Information")
-        msg.setText(
-            """{} -- Active Constraints
+        msg.setText("""{} -- Active Constraints
 {} -- Active Equalities
 {} -- Free Variables
-{} -- {} of Freedom""".format(
-                cons, active_eq, free_vars, dof, doftext
-            )
-        )
-        msg.setStandardButtons(myqt.QMessageBox.Ok)
+{} -- {} of Freedom""".format(cons, active_eq, free_vars, dof, doftext))
+        msg.setStandardButtons(myqt.QMessageBox.StandardButton.Ok)
         msg.setModal(False)
         msg.show()
 
@@ -315,18 +322,20 @@ class MainWindow(_MainWindow, _MainWindowUI):
             return
         msg = myqt.QMessageBox()
         self._dialog = msg
-        msg.setIcon(myqt.QMessageBox.Question)
+        msg.setIcon(myqt.QMessageBox.Icon.Question)
         msg.setText(
             "Are you sure you want to close this window?"
             " You can reopen it with ui.show()."
         )
         msg.setWindowTitle("Close?")
-        msg.setStandardButtons(myqt.QMessageBox.Yes | myqt.QMessageBox.No)
+        msg.setStandardButtons(
+            myqt.QMessageBox.StandardButton.Yes | myqt.QMessageBox.StandardButton.No
+        )
         if self.testing:  # don't even show dialog just pretend button clicked
             result = self._dialog_test_button
         else:
-            result = msg.exec_()
-        if result == myqt.QMessageBox.Yes:
+            result = msg.exec()
+        if result == myqt.QMessageBox.StandardButton.Yes:
             event.accept()
         else:
             event.ignore()

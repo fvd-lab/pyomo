@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 
 from math import isnan
@@ -16,9 +14,11 @@ import unittest
 from pyomo.core.expr import SumExpression, MonomialTermExpression
 from pyomo.core.expr.compare import assertExpressionsEqual
 from pyomo.environ import Any, ConcreteModel, log, Param, Var
-from pyomo.repn.parameterized_quadratic import ParameterizedQuadraticRepnVisitor
+from pyomo.repn.parameterized import ParameterizedQuadraticRepnVisitor
 from pyomo.repn.tests.test_linear import VisitorConfig
 from pyomo.repn.util import InvalidNumber
+
+nan = float('nan')
 
 
 def build_test_model():
@@ -40,7 +40,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = 2
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -59,7 +59,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = 2 + m.p
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -77,7 +77,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = m.x + m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -95,7 +95,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = m.x + m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.x])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.x])
         # note: covers walker_exitNode for case where
         #       constant is a fixed expression
         repn = visitor.walk_expression(expr)
@@ -115,7 +115,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = m.x + m.y
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -133,7 +133,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = m.x + m.y
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.x])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.x])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -151,7 +151,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = m.x + m.z * m.y + m.z
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(e)
 
         self.assertEqual(cfg.subexpr, {})
@@ -165,16 +165,14 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(len(repn.quadratic), 1)
         self.assertEqual(repn.quadratic[(id(m.z), id(m.y))], 1)
         self.assertIsNone(repn.nonlinear)
-        assertExpressionsEqual(
-            self, repn.to_expression(visitor), m.z * m.y + (m.x + m.z)
-        )
+        assertExpressionsEqual(self, repn.to_expression(visitor), m.z * m.y + m.x + m.z)
 
     def test_ternary_sum_with_product_wrt_z(self):
         m = build_test_model()
         e = m.x + m.z * m.y + m.z
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.z])
         repn = visitor.walk_expression(e)
 
         self.assertEqual(cfg.subexpr, {})
@@ -194,7 +192,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = log(m.x)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.x])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.x])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -212,7 +210,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = 2 + 3 * m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(e)
 
@@ -231,7 +229,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = 2 + 3 * m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.x])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.x])
         visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(e)
 
@@ -250,7 +248,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = 2 + 3 * m.x + 4 * m.x**2
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(e)
 
@@ -271,12 +269,12 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = (2 + 3 * m.x + 4 * m.x**2) * (5 + 6 * m.x + 7 * m.x**2)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(e)
 
-        QE4 = SumExpression([4 * m.x**2])
-        QE7 = SumExpression([7 * m.x**2])
+        QE4 = 4 * m.x**2
+        QE7 = 7 * m.x**2
         LE3 = MonomialTermExpression((3, m.x))
         LE6 = MonomialTermExpression((6, m.x))
         NL = +QE4 * (QE7 + LE6) + (LE3) * (QE7)
@@ -298,7 +296,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = (2 + 3 * m.x + 4 * m.x**2) * (5 + 6 * m.x + 7 * m.x**2)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         visitor.expand_nonlinear_products = False
         repn = visitor.walk_expression(e)
 
@@ -319,7 +317,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = (1 + 2 * m.x + 3 * m.y) * (4 + 5 * m.x + 6 * m.y)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(e)
 
         self.assertEqual(cfg.subexpr, {})
@@ -336,7 +334,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            (10 * m.x**2 + 27 * (m.x * m.y) + 18 * m.y**2 + (13 * m.x + 18 * m.y) + 4),
+            (10 * m.x**2 + 27 * (m.x * m.y) + 18 * m.y**2 + 13 * m.x + 18 * m.y + 4),
         )
 
     def test_product_linear_linear_wrt_y(self):
@@ -344,7 +342,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = (1 + 2 * m.x + 3 * m.y) * (4 + 5 * m.x + 6 * m.y)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(e)
 
         self.assertEqual(cfg.subexpr, {})
@@ -373,7 +371,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (0 + 3 * m.x + 4 * m.y) * (5 + 3 * m.x + 7 * m.y)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -390,7 +388,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            9 * m.x**2 + 33 * (m.x * m.y) + 28 * m.y**2 + (15 * m.x + 20 * m.y),
+            9 * m.x**2 + 33 * (m.x * m.y) + 28 * m.y**2 + 15 * m.x + 20 * m.y,
         )
 
     def test_product_linear_quadratic(self):
@@ -398,7 +396,19 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (5 + 3 * m.x + 7 * m.y) * (1 + 3 * m.x + 4 * m.y + 8 * m.y * m.x)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
+        repn = visitor.walk_expression(expr)
+
+        NL = (3 * m.x + 7 * m.y + 5) * (8 * (m.x * m.y) + 3 * m.x + 4 * m.y + 1)
+
+        self.assertEqual(repn.multiplier, 1)
+        self.assertEqual(repn.constant, 0)
+        self.assertEqual(repn.linear, {})
+        self.assertIsNone(repn.quadratic)
+        assertExpressionsEqual(self, repn.nonlinear, NL)
+        assertExpressionsEqual(self, repn.to_expression(visitor), NL)
+
+        visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -412,7 +422,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
             {(id(m.x), id(m.y)): 73, (id(m.x), id(m.x)): 9, (id(m.y), id(m.y)): 28},
         )
         assertExpressionsEqual(
-            self, repn.nonlinear, (3 * m.x + 7 * m.y) * SumExpression([8 * (m.x * m.y)])
+            self, repn.nonlinear, (3 * m.x + 7 * m.y) * (8 * (m.x * m.y))
         )
         assertExpressionsEqual(
             self,
@@ -421,9 +431,10 @@ class TestParameterizedQuadratic(unittest.TestCase):
                 73 * (m.x * m.y)
                 + 9 * m.x**2
                 + 28 * m.y**2
-                + (3 * m.x + 7 * m.y) * SumExpression([8 * (m.x * m.y)])
-                + (18 * m.x + 27 * m.y)
+                + 18 * m.x
+                + 27 * m.y
                 + 5
+                + (3 * m.x + 7 * m.y) * (8 * (m.x * m.y))
             ),
         )
 
@@ -432,7 +443,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (0 + 3 * m.x + 4 * m.y + 8 * m.y * m.x) * (5 + 3 * m.x + 7 * m.y)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.x])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.x])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -462,7 +473,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = (m.x + m.y + log(m.x)) * m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         visitor.expand_nonlinear_products = False
         repn = visitor.walk_expression(e)
 
@@ -483,7 +494,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = (m.x + m.y + log(m.x)) * m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(e)
 
@@ -503,11 +514,11 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = m.x * (m.x + m.y + log(m.x) + 2)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         visitor.expand_nonlinear_products = False
         repn = visitor.walk_expression(e)
 
-        NL = m.x * (log(m.x) + (m.x + m.y) + 2)
+        NL = m.x * (log(m.x) + (m.x + m.y + 2))
 
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(cfg.var_map, {id(m.x): m.x, id(m.y): m.y})
@@ -524,7 +535,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = m.x * (m.x + m.y + log(m.x) + 2)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(e)
 
@@ -539,7 +550,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.quadratic, {(id(m.x), id(m.x)): 1, (id(m.x), id(m.y)): 1})
         assertExpressionsEqual(self, repn.nonlinear, NL)
         assertExpressionsEqual(
-            self, repn.to_expression(visitor), m.x**2 + m.x * m.y + NL + 2 * m.x
+            self, repn.to_expression(visitor), m.x**2 + m.x * m.y + 2 * m.x + NL
         )
 
     def test_zero_elimination(self):
@@ -548,7 +559,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = 0 * m.x[0] + 0 * m.x[1] * m.x[2] + 0 * log(m.x[3])
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(e)
 
         self.assertEqual(cfg.subexpr, {})
@@ -568,8 +579,8 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.constant, 0)
         self.assertEqual(repn.linear, {})
         self.assertIsNone(repn.quadratic)
-        self.assertIsNone(repn.nonlinear)
-        assertExpressionsEqual(self, repn.to_expression(visitor), 0)
+        assertExpressionsEqual(self, repn.nonlinear, 0 * log(m.x[3]))
+        assertExpressionsEqual(self, repn.to_expression(visitor), 0 * log(m.x[3]))
 
     def test_uninitialized_param_expansion(self):
         m = ConcreteModel()
@@ -578,7 +589,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = m.p * m.x[0] + m.p * m.x[1] * m.x[2] + m.p * log(m.x[3])
 
         cfg = VisitorConfig()
-        repn = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[]).walk_expression(e)
+        repn = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[]).walk_expression(e)
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(
             cfg.var_map,
@@ -605,7 +616,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         e = 0 * m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(e)
 
         self.assertEqual(cfg.subexpr, {})
@@ -623,7 +634,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 3 * m.x + 4 * m.y) ** 2
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -640,7 +651,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            9 * m.x**2 + 24 * (m.x * m.y) + 16 * m.y**2 + (6 * m.x + 8 * m.y) + 1,
+            9 * m.x**2 + 16 * m.y**2 + 24 * (m.x * m.y) + 6 * m.x + 8 * m.y + 1,
         )
 
     def test_square_linear_wrt_y(self):
@@ -648,28 +659,22 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 3 * m.x + 4 * m.y) ** 2
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(cfg.var_map, {id(m.x): m.x})
         self.assertEqual(cfg.var_order, {id(m.x): 0})
         self.assertEqual(repn.multiplier, 1)
-        assertExpressionsEqual(self, repn.constant, (1 + 4 * m.y) * (1 + 4 * m.y))
+        assertExpressionsEqual(self, repn.constant, (1 + 4 * m.y) ** 2)
         self.assertEqual(len(repn.linear), 1)
-        assertExpressionsEqual(
-            self, repn.linear[id(m.x)], (1 + 4 * m.y) * 3 + (1 + 4 * m.y) * 3
-        )
+        assertExpressionsEqual(self, repn.linear[id(m.x)], 3 * (2 * (1 + 4 * m.y)))
         self.assertEqual(repn.quadratic, {(id(m.x), id(m.x)): 9})
         self.assertEqual(repn.nonlinear, None)
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            (
-                9 * m.x**2
-                + ((1 + 4 * m.y) * 3 + (1 + 4 * m.y) * 3) * m.x
-                + ((1 + 4 * m.y) * (1 + 4 * m.y))
-            ),
+            (9 * m.x**2 + 3 * (2 * (1 + 4 * m.y)) * m.x + (1 + 4 * m.y) ** 2),
         )
 
     def test_square_linear_float(self):
@@ -677,7 +682,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 3 * m.x + 4 * m.y) ** 2.0
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -694,7 +699,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            9 * m.x**2 + 24 * (m.x * m.y) + 16 * m.y**2 + (6 * m.x + 8 * m.y) + 1,
+            9 * m.x**2 + 16 * m.y**2 + 24 * (m.x * m.y) + 6 * m.x + 8 * m.y + 1,
         )
 
     def test_division_quadratic_nonlinear(self):
@@ -702,7 +707,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 3 * m.x + 4 * log(m.x) * m.y + 4 * m.y**2) / (2 * m.x)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -714,7 +719,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         assertExpressionsEqual(
             self,
             repn.nonlinear,
-            (4 * m.y**2 + 4 * (log(m.x) * m.y) + 3 * m.x + 1) / (2 * m.x),
+            (4 * m.y**2 + 3 * m.x + 1 + log(m.x) * 4 * m.y) / (2 * m.x),
         )
         assertExpressionsEqual(self, repn.to_expression(visitor), repn.nonlinear)
 
@@ -723,7 +728,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 3 * m.x + 4 * log(m.x) * m.y + 4 * m.y**2) / (2 * m.x)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.x])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.x])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -733,18 +738,18 @@ class TestParameterizedQuadratic(unittest.TestCase):
         assertExpressionsEqual(self, repn.constant, (1 + 3 * m.x) * (1 / (2 * m.x)))
         self.assertEqual(len(repn.linear), 1)
         assertExpressionsEqual(
-            self, repn.linear[id(m.y)], (1 / (2 * m.x)) * (4 * log(m.x))
+            self, repn.linear[id(m.y)], (4 * log(m.x)) * (1 / (2 * m.x))
         )
         self.assertEqual(len(repn.quadratic), 1)
         assertExpressionsEqual(
-            self, repn.quadratic[id(m.y), id(m.y)], (1 / (2 * m.x)) * 4
+            self, repn.quadratic[id(m.y), id(m.y)], 4 * (1 / (2 * m.x))
         )
         self.assertEqual(repn.nonlinear, None)
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            ((1 / (2 * m.x)) * 4) * m.y**2
-            + ((1 / (2 * m.x)) * (4 * log(m.x))) * m.y
+            (4 * (1 / (2 * m.x))) * m.y**2
+            + ((4 * log(m.x)) * (1 / (2 * m.x))) * m.y
             + (1 + 3 * m.x) * (1 / (2 * m.x)),
         )
 
@@ -753,7 +758,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = 5 * (2 * m.x + m.x**2)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -768,10 +773,10 @@ class TestParameterizedQuadratic(unittest.TestCase):
 
     def test_0_mult_nan_linear_coeff(self):
         m = build_test_model()
-        expr = 0 * (float("nan") * m.x + m.y + log(m.x) + m.y * m.x**2 + 2 * m.x)
+        expr = 0 * (nan * m.x + m.y + log(m.x) + m.y * m.x**2 + 2 * m.x)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -780,22 +785,23 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.multiplier, 1)
         assertExpressionsEqual(self, repn.constant, 0 * m.y)
         self.assertEqual(len(repn.linear), 1)
-        assertExpressionsEqual(self, repn.linear[id(m.x)], float("nan"))
+        assertExpressionsEqual(self, repn.linear[id(m.x)], nan)
         self.assertEqual(len(repn.quadratic), 1)
         assertExpressionsEqual(self, repn.quadratic[id(m.x), id(m.x)], 0 * m.y)
         assertExpressionsEqual(self, repn.nonlinear, (log(m.x)) * 0)
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            0 * m.y * m.x**2 + (log(m.x)) * 0 + float("nan") * m.x + 0 * m.y,
+            0 * m.y * m.x**2 + nan * m.x + 0 * m.y + log(m.x) * 0,
         )
 
     def test_0_mult_nan_quadratic_coeff(self):
         m = build_test_model()
-        expr = 0 * (m.x + m.y + log(m.x) + float("nan") * m.x**2 + 2 * m.x)
+        expr = 0 * (m.x + m.y + log(m.x) + nan * m.x**2 + 2 * m.x)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
+        # visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -803,14 +809,12 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(cfg.var_order, {id(m.x): 0})
         self.assertEqual(repn.multiplier, 1)
         assertExpressionsEqual(self, repn.constant, 0 * m.y)
-        self.assertEqual(repn.linear, {id(m.x): 0})
+        self.assertEqual(repn.linear, {})
         self.assertEqual(len(repn.quadratic), 1)
-        assertExpressionsEqual(self, repn.quadratic[id(m.x), id(m.x)], float("nan"))
+        assertExpressionsEqual(self, repn.quadratic[id(m.x), id(m.x)], nan)
         assertExpressionsEqual(self, repn.nonlinear, (log(m.x)) * 0)
         assertExpressionsEqual(
-            self,
-            repn.to_expression(visitor),
-            float("nan") * m.x**2 + (log(m.x)) * 0 + 0 * m.y,
+            self, repn.to_expression(visitor), nan * m.x**2 + 0 * m.y + log(m.x) * 0
         )
 
     def test_square_quadratic(self):
@@ -818,10 +822,22 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + m.x + m.y + m.x**2 + m.x * m.y) ** 2.0
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
-        NL = (m.x**2 + m.x * m.y) * (m.x**2 + m.x * m.y + (m.x + m.y)) + (
+        NL = m.x**2 + m.x * m.y + m.x + m.y + 1
+
+        self.assertEqual(repn.multiplier, 1)
+        assertExpressionsEqual(self, repn.constant, 0)
+        self.assertEqual(len(repn.linear), 0)
+        self.assertIsNone(repn.quadratic)
+        assertExpressionsEqual(self, repn.nonlinear, NL * NL)
+        assertExpressionsEqual(self, repn.to_expression(visitor), NL * NL)
+
+        visitor.expand_nonlinear_products = True
+        repn = visitor.walk_expression(expr)
+
+        NL = (m.x**2 + m.x * m.y) * (m.x**2 + m.x * m.y + m.x + m.y) + (
             m.x + m.y
         ) * (m.x**2 + m.x * m.y)
 
@@ -839,7 +855,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            NL + 3 * m.x**2 + 4 * (m.x * m.y) + m.y**2 + (2 * m.x + 2 * m.y) + 1,
+            NL + 3 * m.x**2 + 4 * (m.x * m.y) + m.y**2 + 2 * m.x + 2 * m.y + 1,
         )
 
     def test_square_quadratic_wrt_y(self):
@@ -847,16 +863,25 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + m.x + m.y + m.x**2 + m.x * m.y) ** 2.0
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         repn = visitor.walk_expression(expr)
 
-        NL = SumExpression([m.x**2]) * (m.x**2 + (1 + m.y) * m.x) + (
-            (1 + m.y) * m.x
-        ) * SumExpression([m.x**2])
+        NL = m.x**2 + (1 + m.y) * m.x + (1 + m.y)
+
+        self.assertEqual(repn.multiplier, 1)
+        assertExpressionsEqual(self, repn.constant, 0)
+        self.assertEqual(len(repn.linear), 0)
+        self.assertIsNone(repn.quadratic)
+        assertExpressionsEqual(self, repn.nonlinear, NL * NL)
+        assertExpressionsEqual(self, repn.to_expression(visitor), NL * NL)
+
+        visitor.expand_nonlinear_products = True
+        repn = visitor.walk_expression(expr)
+
+        NL = m.x**2 * (m.x**2 + (1 + m.y) * m.x) + ((1 + m.y) * m.x) * m.x**2
         QC = 1 + m.y + 1 + m.y + (1 + m.y) * (1 + m.y)
         LC = (1 + m.y) * (1 + m.y) + (1 + m.y) * (1 + m.y)
         CON = (1 + m.y) * (1 + m.y)
-
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(cfg.var_map, {id(m.x): m.x})
         self.assertEqual(cfg.var_order, {id(m.x): 0})
@@ -882,7 +907,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + m.x + m.y) ** 3
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -903,7 +928,20 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + log(m.x)) * (log(m.x) + m.y**2)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.z])
+        repn = visitor.walk_expression(expr)
+        self.assertEqual(repn.multiplier, 1)
+        self.assertEqual(repn.constant, 0)
+        self.assertEqual(repn.linear, {})
+        self.assertIsNone(repn.quadratic)
+        assertExpressionsEqual(
+            self, repn.nonlinear, (log(m.x) + 1) * (log(m.x) + m.y**2)
+        )
+        assertExpressionsEqual(
+            self, repn.to_expression(visitor), (log(m.x) + 1) * (log(m.x) + m.y**2)
+        )
+
+        visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -914,12 +952,12 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.linear, {})
         self.assertEqual(repn.quadratic, {(id(m.y), id(m.y)): 1})
         assertExpressionsEqual(
-            self, repn.nonlinear, log(m.x) * (m.y**2 + log(m.x)) + log(m.x)
+            self, repn.nonlinear, log(m.x) * (log(m.x) + m.y**2) + log(m.x)
         )
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            log(m.x) * (m.y**2 + log(m.x)) + log(m.x) + m.y**2,
+            log(m.x) * (log(m.x) + m.y**2) + log(m.x) + m.y**2,
         )
 
     def test_finalize_simplify_coefficients(self):
@@ -927,7 +965,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = m.x + m.p * m.x**2 + 2 * m.y**2 - m.x - m.p * m.x**2 - m.p * m.z
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -936,7 +974,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.multiplier, 1)
         assertExpressionsEqual(self, repn.constant, 2 * m.y**2)
         self.assertEqual(repn.linear, {id(m.z): -1})
-        self.assertEqual(repn.quadratic, {})
+        self.assertEqual(repn.quadratic, None)
         self.assertIsNone(repn.nonlinear)
         assertExpressionsEqual(self, repn.to_expression(visitor), -1 * m.z + 2 * m.y**2)
 
@@ -945,7 +983,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = 2 * (m.x + m.x**2 + 2 * m.y**2 - m.x - m.x**2 - m.p * m.z)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         # this tests case where there are zeros in the `linear`
         # and `quadratic` dicts of the unfinalized repn
         repn = visitor.walk_expression(expr)
@@ -955,7 +993,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(cfg.var_order, {id(m.x): 0, id(m.z): 1})
         self.assertEqual(repn.multiplier, 1)
         self.assertIsNone(repn.nonlinear)
-        self.assertEqual(repn.quadratic, {})
+        self.assertEqual(repn.quadratic, None)
         self.assertEqual(repn.linear, {id(m.z): -2})
         assertExpressionsEqual(self, repn.constant, (2 * m.y**2) * 2)
         assertExpressionsEqual(
@@ -967,7 +1005,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = 2 * (1 + log(m.x)) + (2 * (m.y + m.y**2 + log(m.x)))
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -976,7 +1014,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.multiplier, 1)
         assertExpressionsEqual(self, repn.constant, 2 + 2 * (m.y + m.y**2))
         self.assertEqual(repn.linear, {})
-        self.assertIsNone(repn.quadratic)
+        self.assertEqual(repn.quadratic, None)
         assertExpressionsEqual(self, repn.nonlinear, 2 * log(m.x) + 2 * log(m.x))
         assertExpressionsEqual(
             self,
@@ -989,7 +1027,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = -(2 + 3 * m.x + 5 * m.x * m.y)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -998,11 +1036,11 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.multiplier, 1)
         self.assertEqual(repn.constant, -2)
         self.assertEqual(len(repn.linear), 1)
-        assertExpressionsEqual(self, repn.linear[id(m.x)], -1 * (3 + 5 * m.y))
+        assertExpressionsEqual(self, repn.linear[id(m.x)], (3 + 5 * m.y) * -1)
         self.assertIsNone(repn.quadratic)
         self.assertIsNone(repn.nonlinear)
         assertExpressionsEqual(
-            self, repn.to_expression(visitor), -1 * (3 + 5 * m.y) * m.x - 2
+            self, repn.to_expression(visitor), (3 + 5 * m.y) * -1 * m.x - 2
         )
 
     def test_negation_nonlinear_wrt_y_fix_z(self):
@@ -1019,9 +1057,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         )
 
         cfg = VisitorConfig()
-        # note: variable fixing takes precedence over inclusion in
-        # the `wrt` list; that is tested here
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1037,9 +1073,9 @@ class TestParameterizedQuadratic(unittest.TestCase):
             self,
             repn.to_expression(visitor),
             +(-5 * m.y) * (m.x**2)
-            + 2 * log(m.x) * -1
             + (-3) * m.x
-            + (2 + 8 * m.y + 4) * (-1),
+            + (2 + 8 * m.y + 4) * (-1)
+            + 2 * log(m.x) * -1,
         )
 
     def test_negation_product_linear_linear(self):
@@ -1047,7 +1083,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = -(1 + 2 * m.x + 3 * m.y) * (4 + 5 * m.x + 6 * m.y * 7 * m.z)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1061,7 +1097,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         assertExpressionsEqual(
             self,
             repn.linear[id(m.x)],
-            (-1) * ((4 + 42 * m.y * m.z) * 2 + (1 + 3 * m.y) * 5),
+            ((4 + 42 * m.y * m.z) * 2 + (1 + 3 * m.y) * 5) * -1,
         )
         self.assertEqual(len(repn.quadratic), 1)
         assertExpressionsEqual(self, repn.quadratic[id(m.x), id(m.x)], -10)
@@ -1071,7 +1107,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
             repn.to_expression(visitor),
             (
                 -10 * m.x**2
-                + (-1) * ((4 + 42 * m.y * m.z) * 2 + (1 + 3 * m.y) * 5) * m.x
+                + ((4 + 42 * m.y * m.z) * 2 + (1 + 3 * m.y) * 5) * -1 * m.x
                 + (1 + 3 * m.y) * (4 + 42 * m.y * m.z) * (-1)
             ),
         )
@@ -1081,7 +1117,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = m.x * m.x * m.p
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.z])
         # ensure overcomplication issues with standard repn
         # are not repeated by quadratic repn
         repn = visitor.walk_expression(expr)
@@ -1094,16 +1130,14 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.linear, {})
         self.assertEqual(repn.quadratic, {(id(m.x), id(m.x)): 1})
         self.assertIsNone(repn.nonlinear)
-        assertExpressionsEqual(
-            self, repn.to_expression(visitor), SumExpression([m.x**2])
-        )
+        assertExpressionsEqual(self, repn.to_expression(visitor), m.x**2)
 
     def test_sum_bilinear_terms_commute_product(self):
         m = build_test_model()
         expr = m.x * m.y + m.y * m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, wrt=[m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1114,16 +1148,14 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.linear, {})
         self.assertEqual(repn.quadratic, {(id(m.x), id(m.y)): 2})
         self.assertIsNone(repn.nonlinear)
-        assertExpressionsEqual(
-            self, repn.to_expression(visitor), SumExpression([2 * (m.x * m.y)])
-        )
+        assertExpressionsEqual(self, repn.to_expression(visitor), 2 * (m.x * m.y))
 
     def test_sum_nonlinear(self):
         m = build_test_model()
         expr = (1 + log(m.x)) + (m.x + m.y + m.y**2 + log(m.x))
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         # tests special case of `repn.append` where multiplier
         # is 1 and both summands have a nonlinear term
         repn = visitor.walk_expression(expr)
@@ -1145,35 +1177,52 @@ class TestParameterizedQuadratic(unittest.TestCase):
     def test_product_linear_linear_0_nan(self):
         m = build_test_model()
         m.p.set_value(0)
-        expr = (m.p + 0 * m.x) * (float("nan") + float("nan") * m.x)
+        expr = (m.p + 0 * m.x) * (nan + nan * m.x)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(cfg.var_map, {id(m.x): m.x})
         self.assertEqual(cfg.var_order, {id(m.x): 0})
         self.assertEqual(repn.multiplier, 1)
-        self.assertTrue(isnan(repn.constant))
+        self.assertEqual(repn.constant, 0)
         self.assertEqual(len(repn.linear), 1)
         self.assertTrue(isnan(repn.linear[id(m.x)]))
-        self.assertIsNone(repn.quadratic)
+        self.assertEqual(len(repn.quadratic), 1)
+        self.assertTrue(isnan(repn.quadratic[id(m.x), id(m.x)]))
         self.assertIsNone(repn.nonlinear)
         assertExpressionsEqual(
-            self, repn.to_expression(visitor), float("nan") * m.x + float("nan")
+            self, repn.to_expression(visitor), nan * m.x**2 + nan * m.x
         )
 
     def test_product_quadratic_quadratic_nan_0(self):
+
         m = build_test_model()
         m.p.set_value(0)
-        expr = (float("nan") + float("nan") * m.x + float("nan") * m.x**2) * (
-            m.p + 0 * m.x + 0 * m.x**2
-        )
+        expr = (nan + nan * m.x + nan * m.x**2) * (m.p + 0 * m.x + 0 * m.x**2)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
+
+        NL = (nan * m.x**2 + nan * m.x + nan) * (0 * m.x**2 + 0 * m.x)
+
+        self.assertEqual(cfg.subexpr, {})
+        self.assertEqual(cfg.var_map, {id(m.x): m.x})
+        self.assertEqual(cfg.var_order, {id(m.x): 0})
+        self.assertEqual(repn.multiplier, 1)
+        self.assertEqual(repn.constant, 0)
+        self.assertEqual(len(repn.linear), 0)
+        self.assertIsNone(repn.quadratic)
+        assertExpressionsEqual(self, repn.nonlinear, NL)
+        assertExpressionsEqual(self, repn.to_expression(visitor), NL)
+
+        visitor.expand_nonlinear_products = True
+        repn = visitor.walk_expression(expr)
+
+        NL = (nan * m.x**2) * (0 * m.x**2 + 0 * m.x) + nan * m.x * (0 * m.x**2)
 
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(cfg.var_map, {id(m.x): m.x})
@@ -1184,23 +1233,36 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertTrue(isnan(repn.linear[id(m.x)]))
         self.assertEqual(len(repn.quadratic), 1)
         self.assertTrue(isnan(repn.quadratic[id(m.x), id(m.x)]))
-        self.assertIsNone(repn.nonlinear)
+        assertExpressionsEqual(self, repn.nonlinear, NL)
         assertExpressionsEqual(
-            self,
-            repn.to_expression(visitor),
-            float("nan") * m.x**2 + float("nan") * m.x + float("nan"),
+            self, repn.to_expression(visitor), NL + nan * m.x**2 + nan * m.x + nan
         )
 
     def test_product_quadratic_quadratic_0_nan(self):
         m = build_test_model()
         m.p.set_value(0)
-        expr = (m.p + 0 * m.x + 0 * m.x**2) * (
-            float("nan") + float("nan") * m.x + float("nan") * m.x**2
-        )
+        expr = (m.p + 0 * m.x + 0 * m.x**2) * (nan + nan * m.x + nan * m.x**2)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
+
+        NL = (0 * m.x**2 + 0 * m.x) * (nan * m.x**2 + nan * m.x + nan)
+
+        self.assertEqual(cfg.subexpr, {})
+        self.assertEqual(cfg.var_map, {id(m.x): m.x})
+        self.assertEqual(cfg.var_order, {id(m.x): 0})
+        self.assertEqual(repn.multiplier, 1)
+        self.assertEqual(repn.constant, 0)
+        self.assertEqual(len(repn.linear), 0)
+        self.assertIsNone(repn.quadratic)
+        assertExpressionsEqual(self, repn.nonlinear, NL)
+        assertExpressionsEqual(self, repn.to_expression(visitor), NL)
+
+        visitor.expand_nonlinear_products = True
+        repn = visitor.walk_expression(expr)
+
+        NL = (0 * m.x**2) * (nan * m.x**2 + nan * m.x) + 0 * m.x * (nan * m.x**2)
 
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(cfg.var_map, {id(m.x): m.x})
@@ -1211,11 +1273,9 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertTrue(isnan(repn.linear[id(m.x)]))
         self.assertEqual(len(repn.quadratic), 1)
         self.assertTrue(isnan(repn.quadratic[id(m.x), id(m.x)]))
-        self.assertIsNone(repn.nonlinear)
+        assertExpressionsEqual(self, repn.nonlinear, NL)
         assertExpressionsEqual(
-            self,
-            repn.to_expression(visitor),
-            float("nan") * m.x**2 + float("nan") * m.x + float("nan"),
+            self, repn.to_expression(visitor), NL + nan * m.x**2 + nan * m.x + nan
         )
 
     def test_nary_sum_products(self):
@@ -1228,7 +1288,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         )
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1254,7 +1314,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 2 * m.x) * (3 + 4 * m.y) * (5 + 6 * m.z)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1263,20 +1323,20 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.multiplier, 1)
         assertExpressionsEqual(self, repn.constant, 5 * (3 + 4 * m.y))
         self.assertEqual(len(repn.linear), 2)
-        assertExpressionsEqual(self, repn.linear[id(m.x)], (3 + 4 * m.y) * 10)
-        assertExpressionsEqual(self, repn.linear[id(m.z)], (3 + 4 * m.y) * 6)
+        assertExpressionsEqual(self, repn.linear[id(m.x)], 10 * (3 + 4 * m.y))
+        assertExpressionsEqual(self, repn.linear[id(m.z)], 6 * (3 + 4 * m.y))
         self.assertEqual(len(repn.quadratic), 1)
         assertExpressionsEqual(
-            self, repn.quadratic[id(m.x), id(m.z)], (3 + 4 * m.y) * 12
+            self, repn.quadratic[id(m.x), id(m.z)], 12 * (3 + 4 * m.y)
         )
         self.assertIsNone(repn.nonlinear)
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
             (
-                (3 + 4 * m.y) * 12 * (m.x * m.z)
-                + (3 + 4 * m.y) * 10 * m.x
-                + (3 + 4 * m.y) * 6 * m.z
+                12 * (3 + 4 * m.y) * (m.x * m.z)
+                + 10 * (3 + 4 * m.y) * m.x
+                + 6 * (3 + 4 * m.y) * m.z
                 + 5 * (3 + 4 * m.y)
             ),
         )
@@ -1286,7 +1346,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 2 * m.x + 3 * m.y) ** 1.5
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1296,9 +1356,9 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.constant, 0)
         self.assertEqual(repn.linear, {})
         self.assertIsNone(repn.quadratic)
-        assertExpressionsEqual(self, repn.nonlinear, (1 + 3 * m.y + 2 * m.x) ** 1.5)
+        assertExpressionsEqual(self, repn.nonlinear, (2 * m.x + 1 + 3 * m.y) ** 1.5)
         assertExpressionsEqual(
-            self, repn.to_expression(visitor), (1 + 3 * m.y + 2 * m.x) ** 1.5
+            self, repn.to_expression(visitor), (2 * m.x + 1 + 3 * m.y) ** 1.5
         )
 
     def test_variable_pow_linear(self):
@@ -1306,7 +1366,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 2 * m.x + 3 * m.y) ** (m.y)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1316,9 +1376,9 @@ class TestParameterizedQuadratic(unittest.TestCase):
         self.assertEqual(repn.constant, 0)
         self.assertEqual(repn.linear, {})
         self.assertIsNone(repn.quadratic)
-        assertExpressionsEqual(self, repn.nonlinear, (1 + 3 * m.y + 2 * m.x) ** m.y)
+        assertExpressionsEqual(self, repn.nonlinear, (2 * m.x + 1 + 3 * m.y) ** m.y)
         assertExpressionsEqual(
-            self, repn.to_expression(visitor), (1 + 3 * m.y + 2 * m.x) ** m.y
+            self, repn.to_expression(visitor), (2 * m.x + 1 + 3 * m.y) ** m.y
         )
 
     def test_pow_integer_fixed_var(self):
@@ -1327,28 +1387,22 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (1 + 2 * m.x + 3 * m.y) ** (m.z)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(cfg.var_map, {id(m.x): m.x})
         self.assertEqual(cfg.var_order, {id(m.x): 0})
         self.assertEqual(repn.multiplier, 1)
-        assertExpressionsEqual(self, repn.constant, (1 + 3 * m.y) * (1 + 3 * m.y))
+        assertExpressionsEqual(self, repn.constant, (1 + 3 * m.y) ** 2)
         self.assertEqual(len(repn.linear), 1)
-        assertExpressionsEqual(
-            self, repn.linear[id(m.x)], (1 + 3 * m.y) * 2 + (1 + 3 * m.y) * 2
-        )
+        assertExpressionsEqual(self, repn.linear[id(m.x)], 2 * (2 * (1 + 3 * m.y)))
         self.assertEqual(repn.quadratic, {(id(m.x), id(m.x)): 4})
         self.assertIsNone(repn.nonlinear)
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            (
-                4 * m.x**2
-                + ((1 + 3 * m.y) * 2 + (1 + 3 * m.y) * 2) * m.x
-                + (1 + 3 * m.y) * (1 + 3 * m.y)
-            ),
+            (4 * m.x**2 + (2 * (2 * (1 + 3 * m.y))) * m.x + (1 + 3 * m.y) ** 2),
         )
 
     def test_repr_parameterized_quadratic_repn(self):
@@ -1356,7 +1410,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = 2 + m.x + m.x**2 + log(m.x)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         linear_dict = {id(m.x): 1}
@@ -1385,7 +1439,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = m.x * (m.y + m.x * m.y + m.z)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1413,7 +1467,7 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = (m.y + m.x * m.y + m.z) * m.x
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.y, m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.y, m.z])
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
@@ -1443,21 +1497,22 @@ class TestParameterizedQuadratic(unittest.TestCase):
         expr = m.x * (m.y + m.x * m.y + m.z)
 
         cfg = VisitorConfig()
-        visitor = ParameterizedQuadraticRepnVisitor(*cfg, [m.z])
+        visitor = ParameterizedQuadraticRepnVisitor(**cfg, wrt=[m.z])
+        visitor.expand_nonlinear_products = True
         repn = visitor.walk_expression(expr)
 
         self.assertEqual(cfg.subexpr, {})
         self.assertEqual(cfg.var_map, {id(m.x): m.x, id(m.y): m.y})
         self.assertEqual(cfg.var_order, {id(m.x): 0, id(m.y): 1})
         self.assertEqual(repn.multiplier, 1)
-        assertExpressionsEqual(self, repn.constant, 0)
+        assertExpressionsEqual(self, repn.constant, 0 * m.z)
         self.assertEqual(len(repn.linear), 1)
         assertExpressionsEqual(self, repn.linear[id(m.x)], m.z)
         self.assertEqual(len(repn.quadratic), 1)
         self.assertEqual(repn.quadratic, {(id(m.x), id(m.y)): 1})
-        assertExpressionsEqual(self, repn.nonlinear, m.x * SumExpression([m.x * m.y]))
+        assertExpressionsEqual(self, repn.nonlinear, m.x * (m.x * m.y))
         assertExpressionsEqual(
             self,
             repn.to_expression(visitor),
-            m.x * m.y + m.x * SumExpression([m.x * m.y]) + m.z * m.x,
+            m.x * m.y + m.z * m.x + 0 * m.z + m.x * (m.x * m.y),
         )

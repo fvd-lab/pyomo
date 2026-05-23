@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from pyomo.contrib.piecewise.transform.piecewise_linear_transformation_base import (
     PiecewiseLinearTransformationBase,
@@ -27,20 +25,18 @@ from math import ceil, log2
     """,
 )
 class DisaggregatedLogarithmicMIPTransformation(PiecewiseLinearTransformationBase):
-    """
-    Represent a piecewise linear function "logarithmically" by using a MIP with
-    log_2(|P|) binary decision variables, following the "disaggregated logarithmic"
-    method from [1]. This is a direct-to-MIP transformation; GDP is not used.
-    This method of logarithmically formulating the piecewise linear function
-    imposes no restrictions on the family of polytopes, but we assume we have
-    simplices in this code.
+    """Represent a piecewise linear function "logarithmically" as a MIP.
 
-    References
-    ----------
-    [1] J.P. Vielma, S. Ahmed, and G. Nemhauser, "Mixed-integer models
-        for nonseparable piecewise-linear optimization: unifying framework
-        and extensions," Operations Research, vol. 58, no. 2, pp. 305-315,
-        2010.
+    This transformation represents a piecewise linear function
+    "logarithmically" by using a MIP with :math:`log_2(|P|)` binary
+    decision variables, following the "disaggregated logarithmic" method
+    from [VAN10]_.
+
+    This is a direct-to-MIP transformation; GDP is not used.  This
+    method of logarithmically formulating the piecewise linear function
+    imposes no restrictions on the family of polytopes, but we assume we
+    have simplices in this code.
+
     """
 
     CONFIG = PiecewiseLinearTransformationBase.CONFIG()

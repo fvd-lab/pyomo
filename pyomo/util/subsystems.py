@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 from pyomo.core.base.block import Block
 from pyomo.core.base.reference import Reference
@@ -164,7 +162,7 @@ def generate_subsystem_blocks(subsystems, include_fixed=False):
         yield block, list(block.input_vars.values())
 
 
-class TemporarySubsystemManager(object):
+class TemporarySubsystemManager:
     """This class is a context manager for cases when we want to
     temporarily fix or deactivate certain variables or constraints
     in order to perform some solve or calculation with the resulting
@@ -286,26 +284,33 @@ class ParamSweeper(TemporarySubsystemManager):
     calculation, over a range of values for which the calculation
     is valid. For example:
 
-    >>> model = ... # Make model somehow
-    >>> solver = ... # Make solver somehow
-    >>> input_vars = [model.v1]
-    >>> n_scen = 2
-    >>> input_values = ComponentMap([(model.v1, [1.1, 2.1])])
-    >>> output_values = ComponentMap([(model.v2, [1.2, 2.2])])
-    >>> with ParamSweeper(
-    ...         n_scen,
-    ...         input_values,
-    ...         output_values,
-    ...         to_fix=input_vars,
-    ...         ) as param_sweeper:
-    >>>     for inputs, outputs in param_sweeper:
-    >>>         solver.solve(model)
-    >>>         # inputs and outputs contain the correct values for this
-    >>>         # instance of the model
-    >>>         for var, val in outputs.items():
-    >>>             # Test that model.v2 was calculated properly.
-    >>>             # First that it equals 1.2, then that it equals 2.2
-    >>>             assert var.value == val
+    .. testcode::
+       :skipif: not glpk_available
+
+       model = pyo.ConcreteModel()
+       model.v1 = pyo.Var()
+       model.v2 = pyo.Var()
+       model.c = pyo.Constraint(expr=model.v2 - model.v1 >= 0.1)
+       model.o = pyo.Objective(expr=model.v1 + model.v2)
+       solver = pyo.SolverFactory('glpk')
+       input_vars = [model.v1]
+       n_scen = 2
+       input_values = pyo.ComponentMap([(model.v1, [1.1, 2.1])])
+       output_values = pyo.ComponentMap([(model.v2, [1.2, 2.2])])
+       with ParamSweeper(
+               n_scen,
+               input_values,
+               output_values,
+               to_fix=input_vars,
+               ) as param_sweeper:
+           for inputs, outputs in param_sweeper:
+               solver.solve(model)
+               # inputs and outputs contain the correct values for this
+               # instance of the model
+               for var, val in outputs.items():
+                   # Test that model.v2 was calculated properly.
+                   # First that it equals 1.2, then that it equals 2.2
+                   assert var.value == val, f"{var.value} != {val}"
 
     """
 

@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 """Big-M Generalized Disjunctive Programming transformation module."""
 
@@ -93,18 +91,17 @@ class BigM_Transformation(GDP_to_MIP_Transformation, _BigM_MixIn):
         targets: the targets to transform [default: the instance]
 
     M values are determined as follows:
-       1) if the constraint appears in the bigM argument dict
-       2) if the constraint parent_component appears in the bigM
-          argument dict
-       3) if any block which is an ancestor to the constraint appears in
+       1. if the constraint appears in the bigM argument dict
+       2. if the constraint parent_component appears in the bigM argument dict
+       3. if any block which is an ancestor to the constraint appears in
           the bigM argument dict
-       3) if 'None' is in the bigM argument dict
-       4) if the constraint or the constraint parent_component appear in
+       4. if 'None' is in the bigM argument dict
+       5. if the constraint or the constraint parent_component appear in
           a BigM Suffix attached to any parent_block() beginning with the
           constraint's parent_block and moving up to the root model.
-       5) if None appears in a BigM Suffix attached to any
+       6. if None appears in a BigM Suffix attached to any
           parent_block() between the constraint and the root model.
-       6) if the constraint is linear, estimate M using the variable bounds
+       7. if the constraint is linear, estimate M using the variable bounds
 
     M values may be a single value or a 2-tuple specifying the M for the
     lower bound and the upper bound of the constraint body.
@@ -222,7 +219,7 @@ class BigM_Transformation(GDP_to_MIP_Transformation, _BigM_MixIn):
     def _transform_disjunctionData(self, obj, index, bigM, gdp_tree):
         parent_disjunct = gdp_tree.parent(obj)
         root_disjunct = gdp_tree.root_disjunct(obj)
-        (transBlock, xorConstraint) = self._setup_transform_disjunctionData(
+        transBlock, xorConstraint = self._setup_transform_disjunctionData(
             obj, root_disjunct
         )
 
@@ -379,7 +376,7 @@ class BigM_Transformation(GDP_to_MIP_Transformation, _BigM_MixIn):
         for bigm in suffix_list:
             if constraint in bigm:
                 M = bigm[constraint]
-                (lower, upper, need_lower, need_upper) = self._process_M_value(
+                lower, upper, need_lower, need_upper = self._process_M_value(
                     M,
                     lower,
                     upper,
@@ -396,7 +393,7 @@ class BigM_Transformation(GDP_to_MIP_Transformation, _BigM_MixIn):
             if constraint.parent_component() in bigm:
                 parent = constraint.parent_component()
                 M = bigm[parent]
-                (lower, upper, need_lower, need_upper) = self._process_M_value(
+                lower, upper, need_lower, need_upper = self._process_M_value(
                     M, lower, upper, need_lower, need_upper, bigm, parent, constraint
                 )
                 if not need_lower and not need_upper:
@@ -408,7 +405,7 @@ class BigM_Transformation(GDP_to_MIP_Transformation, _BigM_MixIn):
             for bigm in suffix_list:
                 if None in bigm:
                     M = bigm[None]
-                    (lower, upper, need_lower, need_upper) = self._process_M_value(
+                    lower, upper, need_lower, need_upper = self._process_M_value(
                         M, lower, upper, need_lower, need_upper, bigm, None, constraint
                     )
                 if not need_lower and not need_upper:
@@ -424,7 +421,7 @@ class BigM_Transformation(GDP_to_MIP_Transformation, _BigM_MixIn):
     )
     def get_m_value_src(self, constraint):
         transBlock = _get_constraint_transBlock(constraint)
-        ((lower_val, lower_source, lower_key), (upper_val, upper_source, upper_key)) = (
+        (lower_val, lower_source, lower_key), (upper_val, upper_source, upper_key) = (
             transBlock.private_data().bigm_src[constraint]
         )
 

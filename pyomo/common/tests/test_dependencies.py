@@ -1,15 +1,15 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import inspect
+import sys
+from importlib.machinery import PathFinder
 from io import StringIO
 
 import pyomo.common.unittest as unittest
@@ -24,9 +24,12 @@ from pyomo.common.dependencies import (
     UnavailableClass,
     _DeferredAnd,
     _DeferredOr,
+    _DeferredImportCallbackFinder,
     check_min_version,
     dill,
     dill_available,
+    mpi4py_available,
+    packaging_available,
 )
 
 import pyomo.common.tests.dep_mod as dep_mod
@@ -85,12 +88,12 @@ class TestDependencies(unittest.TestCase):
 
     def test_import_success(self):
         module_obj, module_available = attempt_import(
-            'ply', 'Testing import of ply', defer_import=False
+            'pyomo.tpl.ply', 'Testing import of ply', defer_import=False
         )
         self.assertTrue(module_available)
-        import ply
+        import pyomo.tpl.ply
 
-        self.assertTrue(module_obj is ply)
+        self.assertTrue(module_obj is pyomo.tpl.ply)
 
     def test_local_deferred_import(self):
         self.assertIs(type(deps.bogus_available), DeferredImportIndicator)
@@ -121,6 +124,9 @@ class TestDependencies(unittest.TestCase):
         self.assertIs(dep_mod.bogus_nonexisting_module_available, False)
         self.assertIs(type(dep_mod.bogus_nonexisting_module), ModuleUnavailable)
 
+    @unittest.skipUnless(
+        packaging_available, "min_version tests require packaging module"
+    )
     def test_min_version(self):
         mod, avail = attempt_import(
             'pyomo.common.tests.dep_mod', minimum_version='1.0', defer_import=False
@@ -173,8 +179,11 @@ class TestDependencies(unittest.TestCase):
         mod, avail = attempt_import('pyomo.common.tests.bogus', minimum_version='1.0')
         self.assertFalse(check_min_version(mod, '1.0'))
 
+    @unittest.skipUnless(
+        packaging_available, "min_version tests require packaging module"
+    )
     def test_and_or(self):
-        mod0, avail0 = attempt_import('ply', defer_import=True)
+        mod0, avail0 = attempt_import('pyomo.tpl.ply', defer_import=True)
         mod1, avail1 = attempt_import('pyomo.common.tests.dep_mod', defer_import=True)
         mod2, avail2 = attempt_import(
             'pyomo.common.tests.dep_mod', minimum_version='2.0', defer_import=True
@@ -227,13 +236,18 @@ class TestDependencies(unittest.TestCase):
         self.assertIsInstance(_ror, _DeferredOr)
         self.assertTrue(_ror)
 
+    @unittest.skipUnless(
+        packaging_available, "min_version tests require packaging module"
+    )
     def test_callbacks(self):
         ans = []
 
         def _record_avail(module, avail):
             ans.append(avail)
 
-        mod0, avail0 = attempt_import('ply', defer_import=True, callback=_record_avail)
+        mod0, avail0 = attempt_import(
+            'pyomo.tpl.ply', defer_import=True, callback=_record_avail
+        )
         mod1, avail1 = attempt_import(
             'pyomo.common.tests.dep_mod',
             minimum_version='2.0',
@@ -246,6 +260,70 @@ class TestDependencies(unittest.TestCase):
         self.assertEqual(ans, [True])
         self.assertFalse(avail1)
         self.assertEqual(ans, [True, False])
+
+    def test_callback_on_import(self):
+        sys.modules.pop('pyomo.common.tests.mod', None)
+        ans = []
+
+        class ImpFinder:
+            # This is an "imp" module-style finder (deprecated in Python
+            # 3.4 and removed in Python 3.12, but Google Collab still
+            # defines finders like this)
+            match = ''
+
+            def find_module(self, fullname, path=None):
+                if fullname != self.match:
+                    ans.append('pass')
+                    return None
+                ans.append('load')
+                spec = PathFinder().find_spec(fullname, path)
+                return spec.loader
+
+            def load_module(self, name):
+                pass
+
+        def _callback(module, avail):
+            ans.append(len(ans))
+
+        attempt_import('pyomo.common.tests.mod', defer_import=True, callback=_callback)
+        self.assertEqual(ans, [])
+        import pyomo.common.tests.mod as m
+
+        self.assertEqual(ans, [0])
+        self.assertEqual(m.Foo.data, 42)
+
+        sys.modules.pop('pyomo.common.tests.mod', None)
+        del m
+        attempt_import('pyomo.common.tests.mod', defer_import=True, callback=_callback)
+
+        try:
+            # Test deferring to an imp-style finder that does not match
+            # the target module name
+            _finder = ImpFinder()
+            sys.meta_path.insert(
+                sys.meta_path.index(_DeferredImportCallbackFinder) + 1, _finder
+            )
+            import pyomo.common.tests.mod as m
+
+            self.assertEqual(ans, [0, 'pass', 2])
+            self.assertEqual(m.Foo.data, 42)
+
+            sys.modules.pop('pyomo.common.tests.mod', None)
+            del m
+            attempt_import(
+                'pyomo.common.tests.mod', defer_import=True, callback=_callback
+            )
+
+            # Test deferring to an imp-style finder that DOES match the
+            # target module name
+            _finder.match = 'pyomo.common.tests.mod'
+
+            import pyomo.common.tests.mod as m
+
+            self.assertEqual(ans, [0, 'pass', 2, 'load', 4])
+            self.assertEqual(m.Foo.data, 42)
+        finally:
+            sys.meta_path.remove(_finder)
 
     def test_import_exceptions(self):
         mod, avail = attempt_import(
@@ -449,6 +527,12 @@ class TestDependencies(unittest.TestCase):
             r"'__there_is_no_module_named_this__'\)",
         ):
             A_Class.method()
+
+    @unittest.pytest.mark.mpi
+    def test_mpi4py_available(self):
+        from mpi4py import MPI
+
+        self.assertTrue(bool(mpi4py_available))
 
 
 if __name__ == '__main__':

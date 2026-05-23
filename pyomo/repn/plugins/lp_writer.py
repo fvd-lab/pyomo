@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import logging
 from io import StringIO
@@ -19,6 +17,8 @@ from pyomo.common.config import (
     InEnum,
     document_kwargs_from_configdict,
 )
+from pyomo.common.deprecation import deprecation_warning
+from pyomo.common.errors import InvalidConstraintError, InvalidExpressionError
 from pyomo.common.gc_manager import PauseGC
 from pyomo.common.timing import TicTocTimer
 
@@ -30,12 +30,10 @@ from pyomo.core.base import (
     Param,
     Expression,
     SOSConstraint,
-    SortComponents,
     Suffix,
     SymbolMap,
     minimize,
 )
-from pyomo.core.base.component import ActiveComponent
 from pyomo.core.base.label import LPFileLabeler, NumericLabeler
 from pyomo.opt import WriterFactory
 from pyomo.repn.linear import LinearRepnVisitor
@@ -43,10 +41,12 @@ from pyomo.repn.quadratic import QuadraticRepnVisitor
 from pyomo.repn.util import (
     FileDeterminism,
     FileDeterminism_to_SortComponents,
+    OrderedVarRecorder,
     categorize_valid_components,
     initialize_var_map_from_column_order,
     int_float,
     ordered_active_constraints,
+    row_order2row_map,
 )
 
 ### FIXME: Remove the following as soon as non-active components no
@@ -60,7 +60,7 @@ neg_inf = float('-inf')
 
 
 # TODO: make a proper base class
-class LPWriterInfo(object):
+class LPWriterInfo:
     """Return type for LPWriter.write()
 
     Attributes
@@ -80,7 +80,7 @@ class LPWriterInfo(object):
     'cpxlp_v2', 'Generate the corresponding CPLEX LP file (version 2).'
 )
 @WriterFactory.register('lp_v2', 'Generate the corresponding LP file (version 2).')
-class LPWriter(object):
+class LPWriter:
     CONFIG = ConfigBlock('lpwriter')
     CONFIG.declare(
         'show_section_timing',
@@ -107,10 +107,12 @@ class LPWriter(object):
             doc="""
             How much effort do we want to put into ensuring the
             LP file is written deterministically for a Pyomo model:
-                NONE (0) : None
-                ORDERED (10): rely on underlying component ordering (default)
-                SORT_INDICES (20) : sort keys of indexed components
-                SORT_SYMBOLS (30) : sort keys AND sort names (not declaration order)
+
+               - NONE (0) : None
+               - ORDERED (10): rely on underlying component ordering (default)
+               - SORT_INDICES (20) : sort keys of indexed components
+               - SORT_SYMBOLS (30) : sort keys AND sort names (not declaration order)
+
             """,
         ),
     )
@@ -142,8 +144,6 @@ class LPWriter(object):
             default=None,
             description='Preferred variable ordering',
             doc="""
-
-
             List of variables in the order that they should appear in
             the LP file.  Note that this is only a suggestion, as the LP
             file format is row-major and the columns are inferred from
@@ -241,7 +241,7 @@ class LPWriter(object):
             return _LPWriter_impl(ostream, config).write(model)
 
 
-class _LPWriter_impl(object):
+class _LPWriter_impl:
     def __init__(self, ostream, config):
         self.ostream = ostream
         self.config = config
@@ -267,7 +267,9 @@ class _LPWriter_impl(object):
         aliasSymbol = self.symbol_map.alias
         getSymbol = self.symbol_map.getSymbol
 
-        sorter = FileDeterminism_to_SortComponents(self.config.file_determinism)
+        self.sorter = sorter = FileDeterminism_to_SortComponents(
+            self.config.file_determinism
+        )
         component_map, unknown = categorize_valid_components(
             model,
             active=True,
@@ -303,20 +305,19 @@ class _LPWriter_impl(object):
         ONE_VAR_CONSTANT = Var(name='ONE_VAR_CONSTANT', bounds=(1, 1))
         ONE_VAR_CONSTANT.construct()
 
-        self.var_map = var_map = {id(ONE_VAR_CONSTANT): ONE_VAR_CONSTANT}
-        initialize_var_map_from_column_order(model, self.config, var_map)
-        self.var_order = {_id: i for i, _id in enumerate(var_map)}
+        self.var_map = {id(ONE_VAR_CONSTANT): ONE_VAR_CONSTANT}
+        initialize_var_map_from_column_order(model, self.config, self.var_map)
+        self.var_order = {_id: i for i, _id in enumerate(self.var_map)}
+        self.var_recorder = OrderedVarRecorder(self.var_map, self.var_order, sorter)
 
         _qp = self.config.allow_quadratic_objective
         _qc = self.config.allow_quadratic_constraint
         objective_visitor = (QuadraticRepnVisitor if _qp else LinearRepnVisitor)(
-            {}, var_map, self.var_order, sorter
+            {}, var_recorder=self.var_recorder
         )
         constraint_visitor = (QuadraticRepnVisitor if _qc else LinearRepnVisitor)(
             objective_visitor.subexpression_cache if _qp == _qc else {},
-            var_map,
-            self.var_order,
-            sorter,
+            var_recorder=self.var_recorder,
         )
 
         timer.toc('Initialized column order', level=logging.DEBUG)
@@ -375,7 +376,7 @@ class _LPWriter_impl(object):
         )
         repn = objective_visitor.walk_expression(obj.expr)
         if repn.nonlinear is not None:
-            raise ValueError(
+            raise InvalidExpressionError(
                 f"Model objective ({obj.name}) contains nonlinear terms that "
                 "cannot be written to LP format"
             )
@@ -421,7 +422,7 @@ class _LPWriter_impl(object):
                 continue
             repn = constraint_visitor.walk_expression(body)
             if repn.nonlinear is not None:
-                raise ValueError(
+                raise InvalidConstraintError(
                     f"Model constraint ({con.name}) contains nonlinear terms that "
                     "cannot be written to LP format"
                 )
@@ -511,7 +512,7 @@ class _LPWriter_impl(object):
         integer_vars = []
         binary_vars = []
         getSymbolByObjectID = self.symbol_map.byObject.get
-        for vid, v in var_map.items():
+        for vid, v in self.var_map.items():
             # Some variables in the var_map may not actually have been
             # written out to the LP file (e.g., added from col_order, or
             # multiplied by 0 in the expressions).  Check to see that
@@ -553,18 +554,16 @@ class _LPWriter_impl(object):
                     )
                 )
             if self.config.row_order:
-                # sort() is stable (per Python docs), so we can let
-                # all unspecified rows have a row number one bigger than
-                # the number of rows specified by the user ordering.
-                _n = len(row_order)
-                sos.sort(key=lambda x: _row_getter(x, _n))
+                row_map = row_order2row_map(self.config)
+                _n = len(row_map)
+                sos.sort(key=lambda x: row_map.get(id(x), _n))
 
             ostream.write("\nSOS\n")
             for soscon in sos:
                 ostream.write(f'\n{getSymbol(soscon)}: S{soscon.level}::\n')
                 for v, w in getattr(soscon, 'get_items', soscon.items)():
                     if w.__class__ not in int_float:
-                        w = float(f)
+                        w = float(w)
                     ostream.write(f"  {getSymbol(v)}:{w!s}\n")
 
         ostream.write("\nend\n")

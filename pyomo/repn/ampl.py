@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 
 import ctypes
 import math
@@ -48,13 +46,12 @@ from pyomo.repn.util import (
     BeforeChildDispatcher,
     ExitNodeDispatcher,
     ExprType,
-    InvalidNumber,
     apply_node_operation,
     complex_number_error,
     nan,
     sum_like_expression_types,
+    check_constant,
 )
-
 
 _CONSTANT = ExprType.CONSTANT
 _MONOMIAL = ExprType.MONOMIAL
@@ -75,7 +72,7 @@ def _create_strict_inequality_map(vars_):
     }
 
 
-class TextNLDebugTemplate(object):
+class TextNLDebugTemplate:
     unary = {
         'log': 'o43\t#log\n',
         'log10': 'o42\t#log10\n',
@@ -170,6 +167,10 @@ def _strip_template_comments(vars_, base_):
             vars_[k] = '\n'.join(v_lines)
 
 
+def _inv2str(val):
+    return f"{val._str() if hasattr(val, '_str') else val}"
+
+
 # The "standard" text mode template is the debugging template with the
 # comments removed
 class TextNLTemplate(TextNLDebugTemplate):
@@ -177,7 +178,7 @@ class TextNLTemplate(TextNLDebugTemplate):
     _create_strict_inequality_map(vars())
 
 
-class NLFragment(object):
+class NLFragment:
     """This is a mock "component" for the nl portion of a named Expression.
 
     It is used internally in the writer when requesting symbolic solver
@@ -197,7 +198,7 @@ class NLFragment(object):
         return 'nl(' + self._node.name + ')'
 
 
-class AMPLRepn(object):
+class AMPLRepn:
     """The "compiled" representation of an expression in AMPL NL format.
 
     This stores a compiled form of an expression in the AMPL "NL"
@@ -223,11 +224,14 @@ class AMPLRepn(object):
 
         The general nonlinear portion of the compiled expression as a
         tuple of two parts:
-          - the nl template string: this is the NL string with
-            placeholders (`%s`) for all the variables that appear in
-            the expression.
-          - an iterable if the `VarData` IDs that correspond to the
-            placeholders in the nl template string
+
+           - the nl template string: this is the NL string with
+             placeholders (``%s``) for all the variables that appear in
+             the expression.
+
+           - an iterable if the :class:`VarData` IDs that correspond to the
+             placeholders in the nl template string
+
         This is `None` if there is no general nonlinear part of the
         expression.  Note that this can be a list of tuple fragments
         within AMPLRepnVisitor, but that list is concatenated to a
@@ -539,7 +543,7 @@ def handle_product_node(visitor, node, arg1, arg2):
                 _prod = mult * arg2[1]
                 if _prod:
                     deprecation_warning(
-                        f"Encountered {mult}*{str(arg2[1])} in expression tree.  "
+                        f"Encountered {mult}*{_inv2str(arg2[1])} in expression tree.  "
                         "Mapping the NaN result to 0 for compatibility "
                         "with the nl_v1 writer.  In the future, this NaN "
                         "will be preserved/emitted to comply with IEEE-754.",
@@ -568,7 +572,7 @@ def handle_product_node(visitor, node, arg1, arg2):
                 _prod = mult * arg2[1]
                 if _prod:
                     deprecation_warning(
-                        f"Encountered {str(mult)}*{arg2[1]} in expression tree.  "
+                        f"Encountered {_inv2str(mult)}*{arg2[1]} in expression tree.  "
                         "Mapping the NaN result to 0 for compatibility "
                         "with the nl_v1 writer.  In the future, this NaN "
                         "will be preserved/emitted to comply with IEEE-754.",
@@ -963,7 +967,7 @@ class AMPLBeforeChildDispatcher(BeforeChildDispatcher):
         arg1, arg2 = child._args_
         if arg1.__class__ not in native_types:
             try:
-                arg1 = visitor.check_constant(visitor.evaluate(arg1), arg1)
+                arg1 = check_constant(visitor.evaluate(arg1), arg1, visitor)
             except (ValueError, ArithmeticError):
                 return True, None
 
@@ -976,7 +980,7 @@ class AMPLBeforeChildDispatcher(BeforeChildDispatcher):
                 arg2 = visitor.fixed_vars[_id]
                 if arg2 != arg2:
                     deprecation_warning(
-                        f"Encountered {arg1}*{arg2} in expression tree.  "
+                        f"Encountered {arg1}*{_inv2str(arg2)} in expression tree.  "
                         "Mapping the NaN result to 0 for compatibility "
                         "with the nl_v1 writer.  In the future, this NaN "
                         "will be preserved/emitted to comply with IEEE-754.",
@@ -1006,17 +1010,17 @@ class AMPLBeforeChildDispatcher(BeforeChildDispatcher):
                 arg1, arg2 = arg._args_
                 if arg1.__class__ not in native_types:
                     try:
-                        arg1 = visitor.check_constant(visitor.evaluate(arg1), arg1)
+                        arg1 = check_constant(visitor.evaluate(arg1), arg1, visitor)
                     except (ValueError, ArithmeticError):
                         return True, None
 
                 # Trap multiplication by 0 and nan.
                 if not arg1:
                     if arg2.fixed:
-                        arg2 = visitor.check_constant(arg2.value, arg2)
+                        arg2 = check_constant(arg2.value, arg2, visitor)
                         if arg2 != arg2:
                             deprecation_warning(
-                                f"Encountered {arg1}*{str(arg2.value)} in expression "
+                                f"Encountered {arg1}*{_inv2str(arg2)} in expression "
                                 "tree.  Mapping the NaN result to 0 for compatibility "
                                 "with the nl_v1 writer.  In the future, this NaN "
                                 "will be preserved/emitted to comply with IEEE-754.",
@@ -1055,7 +1059,7 @@ class AMPLBeforeChildDispatcher(BeforeChildDispatcher):
                     linear[_id] = 1
             else:
                 try:
-                    const += visitor.check_constant(visitor.evaluate(arg), arg)
+                    const += check_constant(visitor.evaluate(arg), arg, visitor)
                 except (ValueError, ArithmeticError):
                     return True, None
 
@@ -1113,40 +1117,8 @@ class AMPLRepnVisitor(StreamBasedExpressionVisitor):
             self.Result = AMPLRepn
         self.template = self.Result.template
 
-    def check_constant(self, ans, obj):
-        if ans.__class__ not in native_numeric_types:
-            # None can be returned from uninitialized Var/Param objects
-            if ans is None:
-                return InvalidNumber(
-                    None, f"'{obj}' evaluated to a nonnumeric value '{ans}'"
-                )
-            if ans.__class__ is InvalidNumber:
-                return ans
-            elif ans.__class__ in native_complex_types:
-                return complex_number_error(ans, self, obj)
-            else:
-                # It is possible to get other non-numeric types.  Most
-                # common are bool and 1-element numpy.array().  We will
-                # attempt to convert the value to a float before
-                # proceeding.
-                #
-                # TODO: we should check bool and warn/error (while bool is
-                # convertible to float in Python, they have very
-                # different semantic meanings in Pyomo).
-                try:
-                    ans = float(ans)
-                except:
-                    return InvalidNumber(
-                        ans, f"'{obj}' evaluated to a nonnumeric value '{ans}'"
-                    )
-        if ans != ans:
-            return InvalidNumber(
-                nan, f"'{obj}' evaluated to a nonnumeric value '{ans}'"
-            )
-        return ans
-
     def cache_fixed_var(self, _id, child):
-        val = self.check_constant(child.value, child)
+        val = check_constant(child.value, child, self)
         lb, ub = child.bounds
         if (lb is not None and lb - val > TOL) or (ub is not None and ub - val < -TOL):
             raise InfeasibleConstraintException(
@@ -1154,7 +1126,7 @@ class AMPLRepnVisitor(StreamBasedExpressionVisitor):
                 f"variable '{child.name}' (fixed value "
                 f"{val} outside bounds [{lb}, {ub}])."
             )
-        self.fixed_vars[_id] = self.check_constant(child.value, child)
+        self.fixed_vars[_id] = check_constant(child.value, child, self)
 
     def node_result_to_amplrepn(self, data):
         if data[0] is _GENERAL:

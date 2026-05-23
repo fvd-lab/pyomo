@@ -1,13 +1,11 @@
-#  ___________________________________________________________________________
+# ____________________________________________________________________________________
 #
-#  Pyomo: Python Optimization Modeling Objects
-#  Copyright (c) 2008-2024
-#  National Technology and Engineering Solutions of Sandia, LLC
-#  Under the terms of Contract DE-NA0003525 with National Technology and
-#  Engineering Solutions of Sandia, LLC, the U.S. Government retains certain
-#  rights in this software.
-#  This software is distributed under the 3-clause BSD License.
-#  ___________________________________________________________________________
+# Pyomo: Python Optimization Modeling Objects
+# Copyright (c) 2008-2026 National Technology and Engineering Solutions of Sandia, LLC
+# Under the terms of Contract DE-NA0003525 with National Technology and Engineering
+# Solutions of Sandia, LLC, the U.S. Government retains certain rights in this
+# software.  This software is distributed under the 3-clause BSD License.
+# ____________________________________________________________________________________
 #
 #
 
@@ -101,6 +99,7 @@ information.
           data and reporting.
 
 """
+
 # TODO
 #    * create a new pint unit definition file (and load from that file)
 #       since the precision in pint seems insufficient for 1e-8 constraint tolerances
@@ -111,8 +110,9 @@ information.
 import logging
 import sys
 
-from pyomo.common.dependencies import attempt_import
+from pyomo.common.dependencies import pint as pint_module, pint_available
 from pyomo.common.modeling import NOTSET
+from pyomo.core.expr.expr_common import _type_check_exception_arg
 from pyomo.core.expr.numvalue import (
     NumericValue,
     nonpyomo_leaf_types,
@@ -123,14 +123,6 @@ from pyomo.core.expr.numvalue import (
 from pyomo.core.expr.template_expr import IndexTemplate
 from pyomo.core.expr.visitor import ExpressionValueVisitor
 import pyomo.core.expr as EXPR
-
-pint_module, pint_available = attempt_import(
-    'pint',
-    error_message=(
-        'The "pint" package failed to import. '
-        'This package is necessary to use Pyomo units.'
-    ),
-)
 
 logger = logging.getLogger(__name__)
 
@@ -392,7 +384,7 @@ class _PyomoUnit(NumericValue):
         else:
             return _str
 
-    def __call__(self, exception=True):
+    def __call__(self, exception=NOTSET):
         """Unit is treated as a constant value, and this method always returns 1.0
 
         Returns
@@ -400,6 +392,7 @@ class _PyomoUnit(NumericValue):
         : float
            Returns 1.0
         """
+        _type_check_exception_arg(self, exception)
         return 1.0
 
     @property
@@ -950,7 +943,7 @@ class PintUnitExtractionVisitor(EXPR.StreamBasedExpressionVisitor):
         return result
 
 
-class PyomoUnitsContainer(object):
+class PyomoUnitsContainer:
     """Class that is used to create and contain units in Pyomo.
 
     This is the class that is used to create, contain, and interact
